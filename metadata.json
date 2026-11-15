@@ -1,0 +1,8 @@
+{
+  "name": "PROJECT REBUILD ME",
+  "description": "Personal life execution platform for university students to plan 30-day routines, track habits, manage goals, and analyze daily discipline.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

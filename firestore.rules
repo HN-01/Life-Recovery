@@ -1,0 +1,248 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // 1. Global Default-Deny Safety Net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // 2. Hardened Global Primitives
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    // 3. Entity Validation Blueprints
+    function isValidProfile(data, userId) {
+      return data.keys().hasAll(['uid', 'name', 'startDate', 'wakeTime', 'sleepTime', 'onboardingCompleted', 'updatedAt'])
+        && data.keys().hasOnly([
+          'uid', 'name', 'email', 'photoUrl', 'startDate', 'wakeTime', 'sleepTime',
+          'fixedCommitments', 'primaryGoalAreas', 'prayerTimes', 'schedulingPreferences',
+          'dashboardPreferences', 'onboardingCompleted', 'updatedAt'
+        ])
+        && data.uid is string && data.uid == userId
+        && data.name is string && data.name.size() >= 1 && data.name.size() <= 120
+        && (!('email' in data) || (data.email is string && data.email.size() <= 200))
+        && (!('photoUrl' in data) || (data.photoUrl is string && data.photoUrl.size() <= 2000))
+        && data.startDate is string && data.startDate.size() >= 8 && data.startDate.size() <= 20
+        && data.wakeTime is string && data.wakeTime.size() >= 4 && data.wakeTime.size() <= 10
+        && data.sleepTime is string && data.sleepTime.size() >= 4 && data.sleepTime.size() <= 10
+        && (!('fixedCommitments' in data) || (data.fixedCommitments is list && data.fixedCommitments.size() <= 30))
+        && (!('primaryGoalAreas' in data) || (data.primaryGoalAreas is list && data.primaryGoalAreas.size() <= 10))
+        && (!('prayerTimes' in data) || data.prayerTimes is map)
+        && (!('schedulingPreferences' in data) || data.schedulingPreferences is map)
+        && (!('dashboardPreferences' in data) || data.dashboardPreferences is map)
+        && data.onboardingCompleted is bool
+        && data.updatedAt is string && data.updatedAt.size() <= 40;
+    }
+
+    function isValidDayPlan(data, userId) {
+      return data.keys().hasAll(['uid', 'dayNumber', 'date', 'scheduleType', 'tasks', 'updatedAt'])
+        && data.keys().hasOnly(['uid', 'dayNumber', 'date', 'scheduleType', 'tasks', 'dailyReview', 'focusSessions', 'updatedAt'])
+        && data.uid is string && data.uid == userId
+        && data.dayNumber is int && data.dayNumber >= 1 && data.dayNumber <= 60
+        && data.date is string && data.date.size() >= 8 && data.date.size() <= 20
+        && data.scheduleType in ['normal', 'university', 'weekend', 'holiday', 'exam']
+        && data.tasks is list && data.tasks.size() <= 100
+        && (!('dailyReview' in data) || data.dailyReview is map)
+        && (!('focusSessions' in data) || (data.focusSessions is list && data.focusSessions.size() <= 50))
+        && data.updatedAt is string && data.updatedAt.size() <= 40;
+    }
+
+    function isValidTemplates(data, userId) {
+      return data.keys().hasAll(['uid', 'templates', 'updatedAt'])
+        && data.keys().hasOnly(['uid', 'templates', 'updatedAt'])
+        && data.uid is string && data.uid == userId
+        && data.templates is map
+        && data.updatedAt is string && data.updatedAt.size() <= 40;
+    }
+
+    function isValidHabit(data, userId, habitId) {
+      return data.keys().hasAll(['uid', 'id', 'title', 'category', 'frequency', 'targetPerWeek', 'logs', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['uid', 'id', 'title', 'category', 'frequency', 'customDays', 'targetPerWeek', 'logs', 'createdAt', 'updatedAt'])
+        && data.uid is string && data.uid == userId
+        && data.id is string && data.id == habitId && isValidId(data.id)
+        && data.title is string && data.title.size() >= 1 && data.title.size() <= 200
+        && data.category is string && data.category.size() >= 1 && data.category.size() <= 80
+        && data.frequency in ['daily', 'weekdays', 'weekends', 'custom']
+        && (!('customDays' in data) || (data.customDays is list && data.customDays.size() <= 7))
+        && data.targetPerWeek is int && data.targetPerWeek >= 1 && data.targetPerWeek <= 7
+        && data.logs is map
+        && data.createdAt is string && data.createdAt.size() <= 40
+        && data.updatedAt is string && data.updatedAt.size() <= 40;
+    }
+
+    function isValidGoal(data, userId, goalId) {
+      return data.keys().hasAll(['uid', 'id', 'area', 'title', 'description', 'deadline', 'status', 'milestones', 'notes', 'linkedTaskTitles', 'updatedAt'])
+        && data.keys().hasOnly(['uid', 'id', 'area', 'title', 'description', 'deadline', 'status', 'milestones', 'notes', 'linkedTaskTitles', 'updatedAt'])
+        && data.uid is string && data.uid == userId
+        && data.id is string && data.id == goalId && isValidId(data.id)
+        && data.area is string && data.area.size() >= 1 && data.area.size() <= 120
+        && data.title is string && data.title.size() >= 1 && data.title.size() <= 240
+        && data.description is string && data.description.size() <= 2000
+        && data.deadline is string && data.deadline.size() >= 8 && data.deadline.size() <= 20
+        && data.status in ['not_started', 'in_progress', 'completed', 'paused']
+        && data.milestones is list && data.milestones.size() <= 50
+        && data.notes is string && data.notes.size() <= 2000
+        && data.linkedTaskTitles is list && data.linkedTaskTitles.size() <= 30
+        && data.updatedAt is string && data.updatedAt.size() <= 40;
+    }
+
+    function isValidProject(data, userId, projectId) {
+      return data.keys().hasAll(['uid', 'id', 'title', 'type', 'description', 'status', 'deadline', 'tasks', 'notes', 'updatedAt'])
+        && data.keys().hasOnly(['uid', 'id', 'title', 'type', 'description', 'status', 'deadline', 'tasks', 'notes', 'link', 'updatedAt'])
+        && data.uid is string && data.uid == userId
+        && data.id is string && data.id == projectId && isValidId(data.id)
+        && data.title is string && data.title.size() >= 1 && data.title.size() <= 240
+        && data.type in ['technical', 'creative']
+        && data.description is string && data.description.size() <= 2000
+        && data.status in ['planning', 'active', 'completed', 'on_hold']
+        && data.deadline is string && data.deadline.size() >= 8 && data.deadline.size() <= 20
+        && data.tasks is list && data.tasks.size() <= 100
+        && data.notes is string && data.notes.size() <= 2000
+        && (!('link' in data) || (data.link is string && data.link.size() <= 500))
+        && data.updatedAt is string && data.updatedAt.size() <= 40;
+    }
+
+    function isValidWeeklyReview(data, userId) {
+      return data.keys().hasAll(['uid', 'weekNumber', 'startDate', 'endDate', 'accomplished', 'failedToComplete', 'distractions', 'improved', 'needsImprovement', 'nextWeekPriorities', 'updatedAt'])
+        && data.keys().hasOnly(['uid', 'weekNumber', 'startDate', 'endDate', 'accomplished', 'failedToComplete', 'distractions', 'improved', 'needsImprovement', 'nextWeekPriorities', 'updatedAt'])
+        && data.uid is string && data.uid == userId
+        && data.weekNumber is int && data.weekNumber >= 1 && data.weekNumber <= 10
+        && data.startDate is string && data.startDate.size() >= 8 && data.startDate.size() <= 20
+        && data.endDate is string && data.endDate.size() >= 8 && data.endDate.size() <= 20
+        && data.accomplished is string && data.accomplished.size() <= 3000
+        && data.failedToComplete is string && data.failedToComplete.size() <= 3000
+        && data.distractions is string && data.distractions.size() <= 3000
+        && data.improved is string && data.improved.size() <= 3000
+        && data.needsImprovement is string && data.needsImprovement.size() <= 3000
+        && data.nextWeekPriorities is list && data.nextWeekPriorities.size() <= 10
+        && data.updatedAt is string && data.updatedAt.size() <= 40;
+    }
+
+    function isValidCoachConversation(data, userId, convId) {
+      return data.keys().hasAll(['uid', 'id', 'title', 'messages', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['uid', 'id', 'title', 'messages', 'createdAt', 'updatedAt'])
+        && data.uid is string && data.uid == userId
+        && data.id is string && data.id == convId && isValidId(data.id)
+        && data.title is string && data.title.size() >= 1 && data.title.size() <= 200
+        && data.messages is list && data.messages.size() <= 200
+        && data.createdAt is string && data.createdAt.size() <= 40
+        && data.updatedAt is string && data.updatedAt.size() <= 40;
+    }
+
+    // 4. User-Scoped Collections (Strict UID Isolation)
+    match /users/{userId} {
+      allow read, write: if false;
+
+      match /private/profile {
+        allow get: if isValidId(userId) && isOwner(userId);
+        allow create: if isValidId(userId) && isOwner(userId) && isValidProfile(incoming(), userId);
+        allow update: if isValidId(userId) && isOwner(userId)
+          && isValidProfile(incoming(), userId)
+          && (!('uid' in existing()) || incoming().uid == existing().uid)
+          && incoming().diff(existing()).affectedKeys().hasOnly([
+            'uid', 'name', 'email', 'photoUrl', 'startDate', 'wakeTime', 'sleepTime',
+            'fixedCommitments', 'primaryGoalAreas', 'prayerTimes', 'schedulingPreferences',
+            'dashboardPreferences', 'onboardingCompleted', 'updatedAt'
+          ]);
+        allow delete: if isValidId(userId) && isOwner(userId);
+      }
+
+      match /templates/all {
+        allow get: if isValidId(userId) && isOwner(userId);
+        allow create: if isValidId(userId) && isOwner(userId) && isValidTemplates(incoming(), userId);
+        allow update: if isValidId(userId) && isOwner(userId)
+          && isValidTemplates(incoming(), userId)
+          && (!('uid' in existing()) || incoming().uid == existing().uid)
+          && incoming().diff(existing()).affectedKeys().hasOnly(['uid', 'templates', 'updatedAt']);
+        allow delete: if isValidId(userId) && isOwner(userId);
+      }
+
+      match /days/{dayDate} {
+        allow get: if isValidId(userId) && isValidId(dayDate) && isOwner(userId);
+        allow list: if isValidId(userId) && isOwner(userId);
+        allow create: if isValidId(userId) && isValidId(dayDate) && isOwner(userId) && isValidDayPlan(incoming(), userId);
+        allow update: if isValidId(userId) && isValidId(dayDate) && isOwner(userId)
+          && isValidDayPlan(incoming(), userId)
+          && (!('uid' in existing()) || incoming().uid == existing().uid)
+          && incoming().diff(existing()).affectedKeys().hasOnly(['uid', 'dayNumber', 'date', 'scheduleType', 'tasks', 'dailyReview', 'focusSessions', 'updatedAt']);
+        allow delete: if isValidId(userId) && isValidId(dayDate) && isOwner(userId);
+      }
+
+      match /habits/{habitId} {
+        allow get: if isValidId(userId) && isValidId(habitId) && isOwner(userId);
+        allow list: if isValidId(userId) && isOwner(userId);
+        allow create: if isValidId(userId) && isValidId(habitId) && isOwner(userId) && isValidHabit(incoming(), userId, habitId);
+        allow update: if isValidId(userId) && isValidId(habitId) && isOwner(userId)
+          && isValidHabit(incoming(), userId, habitId)
+          && (!('uid' in existing()) || incoming().uid == existing().uid)
+          && (!('id' in existing()) || incoming().id == existing().id)
+          && incoming().diff(existing()).affectedKeys().hasOnly(['uid', 'id', 'title', 'category', 'frequency', 'customDays', 'targetPerWeek', 'logs', 'createdAt', 'updatedAt']);
+        allow delete: if isValidId(userId) && isValidId(habitId) && isOwner(userId);
+      }
+
+      match /goals/{goalId} {
+        allow get: if isValidId(userId) && isValidId(goalId) && isOwner(userId);
+        allow list: if isValidId(userId) && isOwner(userId);
+        allow create: if isValidId(userId) && isValidId(goalId) && isOwner(userId) && isValidGoal(incoming(), userId, goalId);
+        allow update: if isValidId(userId) && isValidId(goalId) && isOwner(userId)
+          && isValidGoal(incoming(), userId, goalId)
+          && (!('uid' in existing()) || incoming().uid == existing().uid)
+          && (!('id' in existing()) || incoming().id == existing().id)
+          && incoming().diff(existing()).affectedKeys().hasOnly(['uid', 'id', 'area', 'title', 'description', 'deadline', 'status', 'milestones', 'notes', 'linkedTaskTitles', 'updatedAt']);
+        allow delete: if isValidId(userId) && isValidId(goalId) && isOwner(userId);
+      }
+
+      match /projects/{projectId} {
+        allow get: if isValidId(userId) && isValidId(projectId) && isOwner(userId);
+        allow list: if isValidId(userId) && isOwner(userId);
+        allow create: if isValidId(userId) && isValidId(projectId) && isOwner(userId) && isValidProject(incoming(), userId, projectId);
+        allow update: if isValidId(userId) && isValidId(projectId) && isOwner(userId)
+          && isValidProject(incoming(), userId, projectId)
+          && (!('uid' in existing()) || incoming().uid == existing().uid)
+          && (!('id' in existing()) || incoming().id == existing().id)
+          && incoming().diff(existing()).affectedKeys().hasOnly(['uid', 'id', 'title', 'type', 'description', 'status', 'deadline', 'tasks', 'notes', 'link', 'updatedAt']);
+        allow delete: if isValidId(userId) && isValidId(projectId) && isOwner(userId);
+      }
+
+      match /weeklyReviews/{weekId} {
+        allow get: if isValidId(userId) && isValidId(weekId) && isOwner(userId);
+        allow list: if isValidId(userId) && isOwner(userId);
+        allow create: if isValidId(userId) && isValidId(weekId) && isOwner(userId) && isValidWeeklyReview(incoming(), userId);
+        allow update: if isValidId(userId) && isValidId(weekId) && isOwner(userId)
+          && isValidWeeklyReview(incoming(), userId)
+          && (!('uid' in existing()) || incoming().uid == existing().uid)
+          && incoming().diff(existing()).affectedKeys().hasOnly(['uid', 'weekNumber', 'startDate', 'endDate', 'accomplished', 'failedToComplete', 'distractions', 'improved', 'needsImprovement', 'nextWeekPriorities', 'updatedAt']);
+        allow delete: if isValidId(userId) && isValidId(weekId) && isOwner(userId);
+      }
+
+      match /coachConversations/{conversationId} {
+        allow get: if isValidId(userId) && isValidId(conversationId) && isOwner(userId);
+        allow list: if isValidId(userId) && isOwner(userId);
+        allow create: if isValidId(userId) && isValidId(conversationId) && isOwner(userId) && isValidCoachConversation(incoming(), userId, conversationId);
+        allow update: if isValidId(userId) && isValidId(conversationId) && isOwner(userId)
+          && isValidCoachConversation(incoming(), userId, conversationId)
+          && (!('uid' in existing()) || incoming().uid == existing().uid)
+          && (!('id' in existing()) || incoming().id == existing().id)
+          && incoming().diff(existing()).affectedKeys().hasOnly(['uid', 'id', 'title', 'messages', 'createdAt', 'updatedAt']);
+        allow delete: if isValidId(userId) && isValidId(conversationId) && isOwner(userId);
+      }
+    }
+  }
+}

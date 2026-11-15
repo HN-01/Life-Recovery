@@ -1,0 +1,176 @@
+{
+  "entities": {
+    "UserProfileDoc": {
+      "title": "User Profile and Scheduling Preferences",
+      "description": "Private authenticated user profile, wake/sleep anchors, fixed commitments, and smart scheduling preferences.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "name": { "type": "string", "maxLength": 120 },
+        "email": { "type": "string", "maxLength": 200 },
+        "photoUrl": { "type": "string", "maxLength": 1000 },
+        "startDate": { "type": "string", "maxLength": 20 },
+        "wakeTime": { "type": "string", "maxLength": 10 },
+        "sleepTime": { "type": "string", "maxLength": 10 },
+        "fixedCommitments": { "type": "array" },
+        "primaryGoalAreas": { "type": "array" },
+        "prayerTimes": { "type": "object" },
+        "schedulingPreferences": { "type": "object" },
+        "dashboardPreferences": { "type": "object" },
+        "onboardingCompleted": { "type": "boolean" },
+        "updatedAt": { "type": "string", "maxLength": 40 }
+      },
+      "required": ["uid", "name", "startDate", "wakeTime", "sleepTime", "onboardingCompleted", "updatedAt"]
+    },
+    "DayPlanDoc": {
+      "title": "Day Plan and Completion Records",
+      "description": "Daily routine schedule, tasks, completion status, focus sessions, and optional end-of-day review for a specific YYYY-MM-DD date.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "dayNumber": { "type": "integer" },
+        "date": { "type": "string", "maxLength": 20 },
+        "scheduleType": { "type": "string", "enum": ["normal", "university", "weekend", "holiday", "exam"] },
+        "tasks": { "type": "array" },
+        "dailyReview": { "type": "object" },
+        "focusSessions": { "type": "array" },
+        "updatedAt": { "type": "string", "maxLength": 40 }
+      },
+      "required": ["uid", "dayNumber", "date", "scheduleType", "tasks", "updatedAt"]
+    },
+    "TemplatesDoc": {
+      "title": "Routine Schedule Templates",
+      "description": "User-customized routine templates for normal, university, weekend, holiday, and exam days.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "templates": { "type": "object" },
+        "updatedAt": { "type": "string", "maxLength": 40 }
+      },
+      "required": ["uid", "templates", "updatedAt"]
+    },
+    "HabitDoc": {
+      "title": "Habit Tracker Item",
+      "description": "Trackable habit with frequency, target per week, and date-keyed completion history.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "id": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "title": { "type": "string", "maxLength": 200 },
+        "category": { "type": "string", "maxLength": 80 },
+        "frequency": { "type": "string", "enum": ["daily", "weekdays", "weekends", "custom"] },
+        "customDays": { "type": "array" },
+        "targetPerWeek": { "type": "integer" },
+        "logs": { "type": "object" },
+        "createdAt": { "type": "string", "maxLength": 40 },
+        "updatedAt": { "type": "string", "maxLength": 40 }
+      },
+      "required": ["uid", "id", "title", "category", "frequency", "targetPerWeek", "logs", "createdAt", "updatedAt"]
+    },
+    "GoalDoc": {
+      "title": "Personal Life Goal",
+      "description": "Goal organized under one of the five life areas with milestones, deadline, status, and linked task titles.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "id": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "area": { "type": "string", "maxLength": 120 },
+        "title": { "type": "string", "maxLength": 240 },
+        "description": { "type": "string", "maxLength": 2000 },
+        "deadline": { "type": "string", "maxLength": 20 },
+        "status": { "type": "string", "enum": ["not_started", "in_progress", "completed", "paused"] },
+        "milestones": { "type": "array" },
+        "notes": { "type": "string", "maxLength": 2000 },
+        "linkedTaskTitles": { "type": "array" },
+        "updatedAt": { "type": "string", "maxLength": 40 }
+      },
+      "required": ["uid", "id", "area", "title", "description", "deadline", "status", "milestones", "notes", "linkedTaskTitles", "updatedAt"]
+    },
+    "ProjectDoc": {
+      "title": "Technical or Creative Project",
+      "description": "User project with deliverables checklist, status, deadline, and notes.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "id": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "title": { "type": "string", "maxLength": 240 },
+        "type": { "type": "string", "enum": ["technical", "creative"] },
+        "description": { "type": "string", "maxLength": 2000 },
+        "status": { "type": "string", "enum": ["planning", "active", "completed", "on_hold"] },
+        "deadline": { "type": "string", "maxLength": 20 },
+        "tasks": { "type": "array" },
+        "notes": { "type": "string", "maxLength": 2000 },
+        "link": { "type": "string", "maxLength": 500 },
+        "updatedAt": { "type": "string", "maxLength": 40 }
+      },
+      "required": ["uid", "id", "title", "type", "description", "status", "deadline", "tasks", "notes", "updatedAt"]
+    },
+    "WeeklyReviewDoc": {
+      "title": "Weekly Review Record",
+      "description": "Weekly execution reflection and next-week priority entries.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "weekNumber": { "type": "integer" },
+        "startDate": { "type": "string", "maxLength": 20 },
+        "endDate": { "type": "string", "maxLength": 20 },
+        "accomplished": { "type": "string", "maxLength": 3000 },
+        "failedToComplete": { "type": "string", "maxLength": 3000 },
+        "distractions": { "type": "string", "maxLength": 3000 },
+        "improved": { "type": "string", "maxLength": 3000 },
+        "needsImprovement": { "type": "string", "maxLength": 3000 },
+        "nextWeekPriorities": { "type": "array" },
+        "updatedAt": { "type": "string", "maxLength": 40 }
+      },
+      "required": ["uid", "weekNumber", "startDate", "endDate", "accomplished", "failedToComplete", "distractions", "improved", "needsImprovement", "nextWeekPriorities", "updatedAt"]
+    },
+    "CoachConversationDoc": {
+      "title": "AI Life Coach Conversation",
+      "description": "Authenticated user's AI Life Coach chat thread and proposed schedule recommendations.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "id": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "title": { "type": "string", "maxLength": 200 },
+        "messages": { "type": "array" },
+        "createdAt": { "type": "string", "maxLength": 40 },
+        "updatedAt": { "type": "string", "maxLength": 40 }
+      },
+      "required": ["uid", "id", "title", "messages", "createdAt", "updatedAt"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}/private/profile": {
+      "schema": { "$ref": "#/entities/UserProfileDoc" },
+      "description": "Stores private profile, wake/sleep times, fixed commitments, prayer times, and scheduling preferences for the authenticated user."
+    },
+    "/users/{userId}/days/{dayDate}": {
+      "schema": { "$ref": "#/entities/DayPlanDoc" },
+      "description": "Stores each day's routine tasks, schedule mode, completion records, and daily review."
+    },
+    "/users/{userId}/templates/all": {
+      "schema": { "$ref": "#/entities/TemplatesDoc" },
+      "description": "Stores user-defined routine templates for normal, university, weekend, holiday, and exam days."
+    },
+    "/users/{userId}/habits/{habitId}": {
+      "schema": { "$ref": "#/entities/HabitDoc" },
+      "description": "Stores user's custom habits and completion date maps."
+    },
+    "/users/{userId}/goals/{goalId}": {
+      "schema": { "$ref": "#/entities/GoalDoc" },
+      "description": "Stores user's goals organized by life area with milestones and deadlines."
+    },
+    "/users/{userId}/projects/{projectId}": {
+      "schema": { "$ref": "#/entities/ProjectDoc" },
+      "description": "Stores user's technical and creative projects."
+    },
+    "/users/{userId}/weeklyReviews/{weekId}": {
+      "schema": { "$ref": "#/entities/WeeklyReviewDoc" },
+      "description": "Stores user's weekly reflections and next-week priorities."
+    },
+    "/users/{userId}/coachConversations/{conversationId}": {
+      "schema": { "$ref": "#/entities/CoachConversationDoc" },
+      "description": "Stores user's AI Life Coach conversation history."
+    }
+  }
+}
