@@ -1,0 +1,19 @@
+{
+  "id": "/",
+  "name": "PROJECT REBUILD ME",
+  "short_name": "Rebuild Me",
+  "description": "Personal execution platform, adaptive timetable, progress insights, and AI Life Coach.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#0A0A0C",
+  "theme_color": "#0A0A0C",
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

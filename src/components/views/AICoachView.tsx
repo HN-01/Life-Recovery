@@ -7,7 +7,9 @@ import {
   ClipboardCheck,
   Copy,
   Edit2,
+  ExternalLink,
   FileBarChart2,
+  Globe,
   Loader2,
   MessageSquarePlus,
   RefreshCw,
@@ -126,6 +128,9 @@ function buildContextSnapshot(state: AppState, now: KarachiNow) {
       primaryGoalAreas: state.profile.primaryGoalAreas,
       fixedCommitments: state.profile.fixedCommitments,
       schedulingPreferences: state.profile.schedulingPreferences,
+      basicSchedule: state.profile.basicSchedule,
+      personalActivities: state.profile.personalActivities,
+      goalTargets: state.profile.goalTargets,
     },
     today: {
       date: todayDay?.date ?? now.dateStr,
@@ -395,6 +400,9 @@ export function AICoachView({
           milestones?: string[];
           reason?: string;
         }>;
+        citations?: Array<{ title: string; uri: string }>;
+        webSearchQueries?: string[];
+        isWebGrounded?: boolean;
         modelUsed?: string;
         usedFallback?: boolean;
         fallbackNotice?: string;
@@ -453,6 +461,13 @@ export function AICoachView({
           approvalState: 'pending',
         }));
 
+      const citations = Array.isArray(data.citations)
+        ? data.citations.filter((c) => c && typeof c.uri === 'string' && c.uri.trim())
+        : [];
+      const webSearchQueries = Array.isArray(data.webSearchQueries)
+        ? data.webSearchQueries.filter((q) => typeof q === 'string' && q.trim())
+        : [];
+
       const assistantMsg: CoachMessage = {
         id: params.replaceAssistantMsgId || createId('msg'),
         role: 'assistant',
@@ -460,6 +475,9 @@ export function AICoachView({
         createdAt: new Date().toISOString(),
         suggestedChanges: mappedChanges.length > 0 ? mappedChanges : undefined,
         suggestedGoalActions: mappedGoalActions.length > 0 ? mappedGoalActions : undefined,
+        citations: citations.length > 0 ? citations : undefined,
+        webSearchQueries: webSearchQueries.length > 0 ? webSearchQueries : undefined,
+        isWebGrounded: Boolean(data.isWebGrounded || citations.length > 0),
         modelUsed: data.modelUsed,
         usedFallback: Boolean(data.usedFallback),
         fallbackNotice: data.fallbackNotice,
@@ -828,21 +846,21 @@ export function AICoachView({
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="bg-[#111216] border border-white/8 rounded-2xl p-5 flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+      <div className="bg-card border border-subtle rounded-2xl p-5 flex flex-col lg:flex-row lg:items-center justify-between gap-4">
         <div className="flex items-start gap-3.5">
-          <div className="p-2.5 rounded-xl bg-amber-500/15 border border-amber-500/25 text-amber-400 shrink-0">
+          <div className="p-2.5 rounded-xl bg-gold-soft border border-gold-border text-gold shrink-0">
             <Sparkles className="w-5 h-5" />
           </div>
           <div>
-            <h1 className="text-xl font-semibold text-white">Your AI Life Coach</h1>
-            <p className="text-xs text-slate-400 mt-1">
+            <h1 className="text-xl font-semibold text-main">Your AI Life Coach</h1>
+            <p className="text-xs text-muted mt-1">
               Grounded in your real Firestore tasks, focus sessions, habits, goals, and projects. No changes happen without your explicit approval.
             </p>
           </div>
         </div>
 
         <div className="flex flex-wrap items-center gap-2.5">
-          <div className="flex items-center gap-1 p-1 bg-[#0A0A0C] border border-white/10 rounded-xl">
+          <div className="flex items-center gap-1 p-1 bg-surface border border-subtle rounded-xl">
             {[
               { id: 'chat', label: 'Coach Chat', icon: Bot },
               { id: 'daily', label: 'AI Daily Review', icon: ClipboardCheck },
@@ -856,8 +874,8 @@ export function AICoachView({
                   onClick={() => setActiveTab(tab.id as 'chat' | 'daily' | 'weekly')}
                   className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg transition-colors whitespace-nowrap ${
                     activeTab === tab.id
-                      ? 'bg-amber-500 text-slate-950 font-semibold'
-                      : 'text-slate-400 hover:text-white'
+                      ? 'bg-gold text-on-gold font-semibold'
+                      : 'text-muted hover:text-main'
                   }`}
                 >
                   <Icon className="w-3.5 h-3.5" />
@@ -870,16 +888,16 @@ export function AICoachView({
           <button
             type="button"
             onClick={onOpenSmartPlan}
-            className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-medium text-sky-200 bg-sky-500/15 hover:bg-sky-500/25 border border-sky-500/30 rounded-xl transition-colors whitespace-nowrap shrink-0"
+            className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-medium text-slate-accent bg-slate-soft hover:opacity-90 border border-slate-border rounded-xl transition-colors whitespace-nowrap shrink-0"
           >
-            <CalendarClock className="w-3.5 h-3.5 text-sky-400" />
+            <CalendarClock className="w-3.5 h-3.5 text-slate-accent" />
             Generate Tomorrow&apos;s Smart Plan
           </button>
         </div>
       </div>
 
       {appliedBanner && (
-        <div className="px-4 py-2.5 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-xs text-emerald-300">
+        <div className="px-4 py-2.5 rounded-xl bg-slate-soft border border-slate-border text-xs text-slate-accent">
           {appliedBanner}
         </div>
       )}
@@ -887,16 +905,16 @@ export function AICoachView({
       {activeTab === 'chat' && (
         <div className="grid grid-cols-1 lg:grid-cols-4 gap-6 items-start">
           {/* Conversation History Sidebar */}
-          <aside className="bg-[#111216] border border-white/8 rounded-2xl p-4 space-y-3">
+          <aside className="bg-card border border-subtle rounded-2xl p-4 space-y-3">
             <div className="flex items-center justify-between gap-2">
-              <h2 className="text-xs font-semibold uppercase tracking-wider text-slate-400">
+              <h2 className="text-xs font-semibold uppercase tracking-wider text-muted">
                 Conversations
               </h2>
               <button
                 type="button"
                 disabled={chatLoading}
                 onClick={startNewConversation}
-                className="inline-flex items-center gap-1 text-xs font-medium text-amber-400 hover:text-amber-300 disabled:opacity-40 whitespace-nowrap"
+                className="inline-flex items-center gap-1 text-xs font-medium text-gold hover:opacity-80 disabled:opacity-40 whitespace-nowrap"
               >
                 <MessageSquarePlus className="w-3.5 h-3.5" />
                 New
@@ -904,7 +922,7 @@ export function AICoachView({
             </div>
 
             {conversations.length === 0 ? (
-              <p className="text-xs text-slate-500 py-3">
+              <p className="text-xs text-muted py-3">
                 Ask a question below to start your first coaching thread.
               </p>
             ) : (
@@ -917,8 +935,8 @@ export function AICoachView({
                       key={conv.id}
                       className={`group rounded-xl border transition-colors ${
                         isActive
-                          ? 'bg-amber-500/10 border-amber-500/30 text-white'
-                          : 'bg-[#0A0A0C] border-white/5 text-slate-400 hover:text-slate-200 hover:border-white/10'
+                          ? 'bg-gold-soft border-gold-border text-main'
+                          : 'bg-surface border-subtle text-muted hover:text-main hover:border-gold-border/50'
                       }`}
                     >
                       {isRenaming ? (
@@ -937,12 +955,12 @@ export function AICoachView({
                             onKeyDown={(e) => {
                               if (e.key === 'Escape') setRenamingConvId(null);
                             }}
-                            className="flex-1 min-w-0 px-2 py-1 text-xs bg-[#111216] border border-amber-500/40 rounded text-white focus:outline-none"
+                            className="flex-1 min-w-0 px-2 py-1 text-xs bg-card border border-gold-border rounded text-main focus:outline-none"
                             aria-label="Rename conversation"
                           />
                           <button
                             type="submit"
-                            className="p-1 text-emerald-400 hover:text-emerald-300"
+                            className="p-1 text-slate-accent hover:opacity-80"
                             aria-label="Save conversation name"
                           >
                             <Check className="w-3.5 h-3.5" />
@@ -950,7 +968,7 @@ export function AICoachView({
                           <button
                             type="button"
                             onClick={() => setRenamingConvId(null)}
-                            className="p-1 text-slate-400 hover:text-white"
+                            className="p-1 text-muted hover:text-main"
                             aria-label="Cancel rename"
                           >
                             <X className="w-3.5 h-3.5" />
@@ -964,7 +982,7 @@ export function AICoachView({
                             className="flex-1 min-w-0 text-left"
                           >
                             <p className="text-xs font-medium truncate">{conv.title}</p>
-                            <p className="text-[11px] text-slate-500 mt-0.5 font-mono tabular-nums">
+                            <p className="text-[11px] text-muted mt-0.5 font-mono tabular-nums">
                               {conv.messages.length} msg{conv.messages.length === 1 ? '' : 's'}
                             </p>
                           </button>
@@ -978,7 +996,7 @@ export function AICoachView({
                               }}
                               title="Rename conversation"
                               aria-label={`Rename ${conv.title}`}
-                              className="p-1 text-slate-400 hover:text-amber-300 rounded disabled:opacity-40"
+                              className="p-1 text-muted hover:text-gold rounded disabled:opacity-40"
                             >
                               <Edit2 className="w-3 h-3" />
                             </button>
@@ -988,7 +1006,7 @@ export function AICoachView({
                               onClick={() => deleteConversation(conv.id)}
                               title="Delete conversation"
                               aria-label={`Delete ${conv.title}`}
-                              className="p-1 text-slate-400 hover:text-rose-400 rounded disabled:opacity-40"
+                              className="p-1 text-muted hover:text-rose-muted rounded disabled:opacity-40"
                             >
                               <Trash2 className="w-3 h-3" />
                             </button>
@@ -1006,7 +1024,7 @@ export function AICoachView({
                 type="button"
                 disabled={chatLoading}
                 onClick={clearCurrentConversation}
-                className="w-full inline-flex items-center justify-center gap-1.5 px-3 py-2 text-xs text-slate-400 hover:text-rose-400 disabled:opacity-40 bg-[#0A0A0C] border border-white/8 rounded-xl transition-colors"
+                className="w-full inline-flex items-center justify-center gap-1.5 px-3 py-2 text-xs text-muted hover:text-rose-muted disabled:opacity-40 bg-surface border border-subtle rounded-xl transition-colors"
               >
                 <Trash2 className="w-3.5 h-3.5" />
                 Delete Active Chat
@@ -1015,19 +1033,19 @@ export function AICoachView({
           </aside>
 
           {/* Chat Thread */}
-          <section className="lg:col-span-3 bg-[#111216] border border-white/8 rounded-2xl flex flex-col min-h-[580px]">
+          <section className="lg:col-span-3 bg-card border border-subtle rounded-2xl flex flex-col min-h-[580px]">
             <div className="flex-1 p-5 space-y-5 overflow-y-auto max-h-[560px]">
               {!activeConv || activeConv.messages.length === 0 ? (
                 <div className="py-6 space-y-5">
                   <div className="flex items-start gap-3">
-                    <div className="p-2.5 rounded-xl bg-amber-500/15 text-amber-400 shrink-0">
+                    <div className="p-2.5 rounded-xl bg-gold-soft border border-gold-border text-gold shrink-0">
                       <Bot className="w-5 h-5" />
                     </div>
                     <div>
-                      <h3 className="text-base font-semibold text-white">
+                      <h3 className="text-base font-semibold text-main">
                         Ready for your check-in or strategy session
                       </h3>
-                      <p className="text-xs text-slate-400 mt-1 leading-relaxed max-w-2xl">
+                      <p className="text-xs text-muted mt-1 leading-relaxed max-w-2xl">
                         Ask about your routine execution, focus quality, habits, goal milestones, university study strategies, programming concepts, or anything else you want to think through.
                       </p>
                     </div>
@@ -1040,7 +1058,7 @@ export function AICoachView({
                         type="button"
                         disabled={chatLoading}
                         onClick={() => sendMessage(q)}
-                        className="text-left px-3.5 py-2.5 rounded-xl bg-[#0A0A0C] border border-white/10 hover:border-amber-500/40 hover:bg-amber-500/[0.04] disabled:opacity-50 text-xs text-slate-200 transition-colors"
+                        className="text-left px-3.5 py-2.5 rounded-xl bg-surface border border-subtle hover:border-gold-border hover:bg-gold-soft/50 disabled:opacity-50 text-xs text-main transition-colors"
                       >
                         {q}
                       </button>
@@ -1059,8 +1077,8 @@ export function AICoachView({
                       <div
                         className={`max-w-2xl rounded-2xl px-4 py-3.5 ${
                           isAssistant
-                            ? 'bg-[#0A0A0C] border border-white/10 text-slate-200'
-                            : 'bg-amber-500 text-slate-950 font-medium text-sm leading-relaxed whitespace-pre-wrap'
+                            ? 'bg-surface border border-subtle text-main'
+                            : 'bg-gold text-on-gold font-medium text-sm leading-relaxed whitespace-pre-wrap'
                         }`}
                       >
                         {isAssistant ? (
@@ -1072,15 +1090,25 @@ export function AICoachView({
 
                       {isAssistant && (
                         <div className="mt-1.5 flex flex-wrap items-center gap-3 px-1">
+                          <span
+                            className={`inline-flex items-center gap-1 text-[11px] ${
+                              msg.isWebGrounded ? 'text-slate-accent' : 'text-muted'
+                            }`}
+                          >
+                            <Globe className="w-3 h-3" />
+                            {msg.isWebGrounded
+                              ? 'Web-grounded via Google Search'
+                              : 'Coach & General Knowledge'}
+                          </span>
                           <button
                             type="button"
                             onClick={() => copyAssistantResponse(msg.id, msg.content)}
-                            className="inline-flex items-center gap-1 text-[11px] text-slate-500 hover:text-slate-200 transition-colors"
+                            className="inline-flex items-center gap-1 text-[11px] text-muted hover:text-main transition-colors"
                           >
                             {copiedMsgId === msg.id ? (
                               <>
-                                <Check className="w-3 h-3 text-emerald-400" />
-                                <span className="text-emerald-400">Copied</span>
+                                <Check className="w-3 h-3 text-slate-accent" />
+                                <span className="text-slate-accent">Copied</span>
                               </>
                             ) : (
                               <>
@@ -1094,7 +1122,7 @@ export function AICoachView({
                               type="button"
                               disabled={chatLoading}
                               onClick={() => regenerateAssistantMessage(msg.id)}
-                              className="inline-flex items-center gap-1 text-[11px] text-slate-500 hover:text-amber-300 disabled:opacity-40 transition-colors"
+                              className="inline-flex items-center gap-1 text-[11px] text-muted hover:text-gold disabled:opacity-40 transition-colors"
                             >
                               <RotateCcw className="w-3 h-3" />
                               <span>Regenerate</span>
@@ -1103,8 +1131,31 @@ export function AICoachView({
                         </div>
                       )}
 
+                      {isAssistant && msg.citations && msg.citations.length > 0 && (
+                        <div className="mt-2 max-w-2xl w-full p-2.5 rounded-xl bg-surface border border-slate-border space-y-1.5">
+                          <p className="text-[11px] font-medium text-slate-accent flex items-center gap-1.5">
+                            <Globe className="w-3 h-3" />
+                            Verified Web Sources
+                          </p>
+                          <div className="flex flex-wrap gap-1.5">
+                            {msg.citations.map((c, idx) => (
+                              <a
+                                key={`${c.uri}-${idx}`}
+                                href={c.uri}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-card border border-subtle hover:border-gold-border text-[11px] text-main hover:text-gold transition-colors max-w-[260px]"
+                              >
+                                <span className="truncate">{c.title || c.uri}</span>
+                                <ExternalLink className="w-3 h-3 shrink-0" />
+                              </a>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
                       {isAssistant && msg.usedFallback && msg.fallbackNotice && (
-                        <p className="mt-1.5 text-[11px] text-amber-300/90 bg-amber-500/10 border border-amber-500/20 rounded-lg px-2.5 py-1 max-w-2xl">
+                        <p className="mt-1.5 text-[11px] text-gold bg-gold-soft border border-gold-border rounded-lg px-2.5 py-1 max-w-2xl">
                           {msg.fallbackNotice}
                         </p>
                       )}
@@ -1115,22 +1166,22 @@ export function AICoachView({
                           {msg.suggestedChanges.map((sc) => (
                             <div
                               key={sc.id}
-                              className="p-3.5 rounded-xl bg-[#15171E] border border-sky-500/25 flex flex-col sm:flex-row sm:items-center justify-between gap-3"
+                              className="p-3.5 rounded-xl bg-surface border border-slate-border flex flex-col sm:flex-row sm:items-center justify-between gap-3"
                             >
                               <div className="min-w-0">
-                                <p className="text-xs font-semibold text-white">
+                                <p className="text-xs font-semibold text-main">
                                   Suggested Block: {sc.title}
                                 </p>
-                                <p className="text-xs text-slate-400 font-mono tabular-nums mt-0.5">
+                                <p className="text-xs text-muted font-mono tabular-nums mt-0.5">
                                   {formatDisplayDate(sc.targetDate)} ·{' '}
                                   {formatTime12h(sc.suggestedStartTime)} –{' '}
                                   {formatTime12h(sc.suggestedEndTime)} · {sc.priority}
                                 </p>
-                                <p className="text-xs text-slate-300 mt-1">{sc.reason}</p>
+                                <p className="text-xs text-main/90 mt-1">{sc.reason}</p>
                               </div>
 
                               {sc.approvalState === 'accepted' ? (
-                                <span className="inline-flex items-center gap-1 text-xs font-medium text-emerald-400 shrink-0">
+                                <span className="inline-flex items-center gap-1 text-xs font-medium text-slate-accent shrink-0">
                                   <Check className="w-3.5 h-3.5" />
                                   Applied
                                 </span>
@@ -1140,7 +1191,7 @@ export function AICoachView({
                                   onClick={() =>
                                     approveSingleProposal(activeConv.id, msg.id, sc)
                                   }
-                                  className="px-3 py-1.5 text-xs font-medium text-slate-950 bg-amber-500 hover:bg-amber-400 rounded-lg shrink-0 whitespace-nowrap"
+                                  className="px-3 py-1.5 text-xs font-medium text-on-gold bg-gold hover:bg-gold-hover rounded-lg shrink-0 whitespace-nowrap"
                                 >
                                   Apply Changes
                                 </button>
@@ -1156,21 +1207,21 @@ export function AICoachView({
                           {msg.suggestedGoalActions.map((ga) => (
                             <div
                               key={ga.id}
-                              className="p-3.5 rounded-xl bg-[#15171E] border border-amber-500/25 flex flex-col sm:flex-row sm:items-center justify-between gap-3"
+                              className="p-3.5 rounded-xl bg-surface border border-gold-border flex flex-col sm:flex-row sm:items-center justify-between gap-3"
                             >
                               <div className="min-w-0">
-                                <div className="flex items-center gap-1.5 text-xs font-semibold text-white">
-                                  <Target className="w-3.5 h-3.5 text-amber-400" />
+                                <div className="flex items-center gap-1.5 text-xs font-semibold text-main">
+                                  <Target className="w-3.5 h-3.5 text-gold" />
                                   <span>Suggested Goal: {ga.goalTitle}</span>
                                 </div>
-                                <p className="text-xs text-slate-400 mt-0.5">
+                                <p className="text-xs text-muted mt-0.5">
                                   {ga.area} · Due {formatDisplayDate(ga.deadline)} · {ga.milestones.length} milestones
                                 </p>
-                                <p className="text-xs text-slate-300 mt-1">{ga.reason}</p>
+                                <p className="text-xs text-main/90 mt-1">{ga.reason}</p>
                               </div>
 
                               {ga.approvalState === 'accepted' ? (
-                                <span className="inline-flex items-center gap-1 text-xs font-medium text-emerald-400 shrink-0">
+                                <span className="inline-flex items-center gap-1 text-xs font-medium text-slate-accent shrink-0">
                                   <Check className="w-3.5 h-3.5" />
                                   Saved
                                 </span>
@@ -1181,7 +1232,7 @@ export function AICoachView({
                                     onClick={() =>
                                       approveGoalAction(activeConv.id, msg.id, ga)
                                     }
-                                    className="px-3 py-1.5 text-xs font-medium text-slate-950 bg-amber-500 hover:bg-amber-400 rounded-lg shrink-0 whitespace-nowrap"
+                                    className="px-3 py-1.5 text-xs font-medium text-on-gold bg-gold hover:bg-gold-hover rounded-lg shrink-0 whitespace-nowrap"
                                   >
                                     Save Goal
                                   </button>
@@ -1201,13 +1252,13 @@ export function AICoachView({
                   role="status"
                   className={`inline-flex items-center gap-2 text-xs px-3.5 py-2.5 rounded-xl border ${
                     chatRetryStatus
-                      ? 'text-amber-300 bg-amber-500/10 border-amber-500/25'
-                      : 'text-slate-300 bg-[#0A0A0C] border-white/10'
+                      ? 'text-gold bg-gold-soft border-gold-border'
+                      : 'text-main bg-surface border-subtle'
                   }`}
                 >
                   <Loader2
                     className={`w-3.5 h-3.5 animate-spin ${
-                      chatRetryStatus ? 'text-amber-400' : 'text-sky-400'
+                      chatRetryStatus ? 'text-gold' : 'text-slate-accent'
                     }`}
                   />
                   <span>
@@ -1221,14 +1272,14 @@ export function AICoachView({
               {chatError && !chatLoading && (
                 <div
                   role="alert"
-                  className="text-xs bg-rose-500/10 border border-rose-500/25 rounded-xl p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3"
+                  className="text-xs bg-rose-soft border border-rose-border rounded-xl p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3"
                 >
-                  <div className="flex items-start gap-2 text-rose-300">
-                    <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
+                  <div className="flex items-start gap-2 text-rose-muted">
+                    <AlertTriangle className="w-4 h-4 text-rose-muted shrink-0 mt-0.5" />
                     <div className="space-y-1">
-                      <p className="font-medium text-rose-200">{chatError}</p>
+                      <p className="font-medium text-rose-muted">{chatError}</p>
                       {activeConvHasFailedAttempt && failedChatAttempt && (
-                        <p className="text-[11px] text-slate-300">
+                        <p className="text-[11px] text-main">
                           Your message is preserved: &ldquo;{failedChatAttempt.promptText}&rdquo;
                         </p>
                       )}
@@ -1239,7 +1290,7 @@ export function AICoachView({
                       type="button"
                       disabled={chatLoading}
                       onClick={retryLastChat}
-                      className="inline-flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs font-medium text-white bg-rose-600 hover:bg-rose-500 disabled:opacity-40 rounded-lg transition-colors whitespace-nowrap shrink-0"
+                      className="inline-flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs font-medium text-on-rose bg-rose-muted hover:bg-rose-muted-hover disabled:opacity-40 rounded-lg transition-colors whitespace-nowrap shrink-0"
                     >
                       <RefreshCw className="w-3.5 h-3.5" />
                       Retry
@@ -1255,19 +1306,19 @@ export function AICoachView({
                 e.preventDefault();
                 sendMessage(input);
               }}
-              className="p-4 border-t border-white/8 flex items-center gap-3"
+              className="p-4 border-t border-subtle flex items-center gap-3"
             >
               <input
                 type="text"
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 placeholder="Ask your AI Life Coach about productivity, habits, study strategy, coding, or planning..."
-                className="flex-1 px-4 py-2.5 bg-[#0A0A0C] border border-white/10 rounded-xl text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:border-amber-500/60"
+                className="flex-1 px-4 py-2.5 bg-surface border border-subtle rounded-xl text-sm text-main placeholder:text-muted focus:outline-none focus:border-gold"
               />
               <button
                 type="submit"
                 disabled={chatLoading || !input.trim()}
-                className="inline-flex items-center gap-1.5 px-4 py-2.5 text-xs font-semibold text-slate-950 bg-amber-500 hover:bg-amber-400 disabled:opacity-40 rounded-xl transition-colors whitespace-nowrap"
+                className="inline-flex items-center gap-1.5 px-4 py-2.5 text-xs font-semibold text-on-gold bg-gold hover:bg-gold-hover disabled:opacity-40 rounded-xl transition-colors whitespace-nowrap"
               >
                 <Send className="w-3.5 h-3.5" />
                 Send
@@ -1278,13 +1329,13 @@ export function AICoachView({
       )}
 
       {activeTab === 'daily' && (
-        <section className="bg-[#111216] border border-white/8 rounded-2xl p-6 space-y-5">
+        <section className="bg-card border border-subtle rounded-2xl p-6 space-y-5">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
             <div>
-              <h2 className="text-base font-semibold text-white">
+              <h2 className="text-base font-semibold text-main">
                 AI End-of-Day Accountability Review
               </h2>
-              <p className="text-xs text-slate-400 mt-0.5">
+              <p className="text-xs text-muted mt-0.5">
                 Summarizes completed work, diagnoses missed blocks, compares planned vs actual execution, and proposes 3 practical actions for tomorrow.
               </p>
             </div>
@@ -1292,7 +1343,7 @@ export function AICoachView({
               type="button"
               disabled={dailyLoading}
               onClick={generateAIDailyReview}
-              className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-semibold text-slate-950 bg-amber-500 hover:bg-amber-400 disabled:opacity-50 rounded-xl whitespace-nowrap shrink-0"
+              className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-semibold text-on-gold bg-gold hover:bg-gold-hover disabled:opacity-50 rounded-xl whitespace-nowrap shrink-0"
             >
               {dailyLoading ? (
                 <Loader2 className="w-3.5 h-3.5 animate-spin" />
@@ -1306,9 +1357,9 @@ export function AICoachView({
           {dailyLoading && dailyRetryStatus && (
             <div
               role="status"
-              className="inline-flex items-center gap-2 text-xs text-amber-300 bg-amber-500/10 border border-amber-500/25 rounded-xl px-3.5 py-2.5"
+              className="inline-flex items-center gap-2 text-xs text-gold bg-gold-soft border border-gold-border rounded-xl px-3.5 py-2.5"
             >
-              <Loader2 className="w-3.5 h-3.5 animate-spin text-amber-400" />
+              <Loader2 className="w-3.5 h-3.5 animate-spin text-gold" />
               <span>
                 {dailyRetryStatus.message} (Attempt {dailyRetryStatus.attempt} of{' '}
                 {dailyRetryStatus.maxRetries})
@@ -1319,17 +1370,17 @@ export function AICoachView({
           {dailyError && !dailyLoading && (
             <div
               role="alert"
-              className="text-xs text-rose-300 bg-rose-500/10 border border-rose-500/25 rounded-xl p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3"
+              className="text-xs text-rose-muted bg-rose-soft border border-rose-border rounded-xl p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3"
             >
               <div className="flex items-center gap-2">
-                <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0" />
+                <AlertTriangle className="w-4 h-4 text-rose-muted shrink-0" />
                 <span>{dailyError}</span>
               </div>
               <button
                 type="button"
                 disabled={dailyLoading}
                 onClick={generateAIDailyReview}
-                className="inline-flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs font-medium text-white bg-rose-600 hover:bg-rose-500 disabled:opacity-40 rounded-lg transition-colors whitespace-nowrap shrink-0"
+                className="inline-flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs font-medium text-on-rose bg-rose-muted hover:bg-rose-muted-hover disabled:opacity-40 rounded-lg transition-colors whitespace-nowrap shrink-0"
               >
                 <RefreshCw className="w-3.5 h-3.5" />
                 Retry
@@ -1338,66 +1389,66 @@ export function AICoachView({
           )}
 
           {dailyReport?.usedFallback && dailyReport.fallbackNotice && (
-            <p className="text-xs text-amber-300 bg-amber-500/10 border border-amber-500/20 rounded-xl px-3.5 py-2">
+            <p className="text-xs text-gold bg-gold-soft border border-gold-border rounded-xl px-3.5 py-2">
               {dailyReport.fallbackNotice}
             </p>
           )}
 
           {!dailyReport && !dailyLoading && (
-            <div className="p-8 rounded-xl bg-[#0A0A0C] border border-white/8 text-center text-xs text-slate-400">
+            <div className="p-8 rounded-xl bg-surface border border-subtle text-center text-xs text-muted">
               Click &ldquo;Run AI Daily Review&rdquo; to analyze today&apos;s recorded execution ({formatDisplayDate(now.dateStr)}).
             </div>
           )}
 
           {dailyReport && (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="p-4 rounded-xl bg-[#0A0A0C] border border-white/8 space-y-1.5">
-                <h3 className="text-xs font-semibold text-emerald-400">Completed Summary</h3>
-                <p className="text-sm text-slate-200 leading-relaxed">
+              <div className="p-4 rounded-xl bg-surface border border-subtle space-y-1.5">
+                <h3 className="text-xs font-semibold text-slate-accent">Completed Summary</h3>
+                <p className="text-sm text-main leading-relaxed">
                   {dailyReport.completedSummary}
                 </p>
               </div>
-              <div className="p-4 rounded-xl bg-[#0A0A0C] border border-white/8 space-y-1.5">
-                <h3 className="text-xs font-semibold text-sky-400">Planned vs. Actual</h3>
-                <p className="text-sm text-slate-200 leading-relaxed">
+              <div className="p-4 rounded-xl bg-surface border border-subtle space-y-1.5">
+                <h3 className="text-xs font-semibold text-slate-accent">Planned vs. Actual</h3>
+                <p className="text-sm text-main leading-relaxed">
                   {dailyReport.plannedVsActual}
                 </p>
               </div>
-              <div className="p-4 rounded-xl bg-[#0A0A0C] border border-white/8 space-y-2">
-                <h3 className="text-xs font-semibold text-rose-400">Missed Tasks</h3>
+              <div className="p-4 rounded-xl bg-surface border border-subtle space-y-2">
+                <h3 className="text-xs font-semibold text-rose-muted">Missed Tasks</h3>
                 {dailyReport.missedTasks.length === 0 ? (
-                  <p className="text-xs text-slate-400">No missed tasks recorded today.</p>
+                  <p className="text-xs text-muted">No missed tasks recorded today.</p>
                 ) : (
-                  <ul className="space-y-1 text-xs text-slate-300 list-disc list-inside">
+                  <ul className="space-y-1 text-xs text-main list-disc list-inside">
                     {dailyReport.missedTasks.map((m, i) => (
                       <li key={i}>{m}</li>
                     ))}
                   </ul>
                 )}
               </div>
-              <div className="p-4 rounded-xl bg-[#0A0A0C] border border-white/8 space-y-2">
-                <h3 className="text-xs font-semibold text-amber-400">Observed Patterns</h3>
-                <ul className="space-y-1 text-xs text-slate-300 list-disc list-inside">
+              <div className="p-4 rounded-xl bg-surface border border-subtle space-y-2">
+                <h3 className="text-xs font-semibold text-gold">Observed Patterns</h3>
+                <ul className="space-y-1 text-xs text-main list-disc list-inside">
                   {dailyReport.patterns.map((p, i) => (
                     <li key={i}>{p}</li>
                   ))}
                 </ul>
               </div>
-              <div className="p-4 rounded-xl bg-[#0A0A0C] border border-white/8 space-y-2">
-                <h3 className="text-xs font-semibold text-white">
+              <div className="p-4 rounded-xl bg-surface border border-subtle space-y-2">
+                <h3 className="text-xs font-semibold text-main">
                   Three Practical Recommendations
                 </h3>
-                <ul className="space-y-1.5 text-xs text-slate-300 list-decimal list-inside">
+                <ul className="space-y-1.5 text-xs text-main list-decimal list-inside">
                   {dailyReport.recommendations.map((r, i) => (
                     <li key={i}>{r}</li>
                   ))}
                 </ul>
               </div>
-              <div className="p-4 rounded-xl bg-[#0A0A0C] border border-white/8 space-y-2">
-                <h3 className="text-xs font-semibold text-sky-300">
+              <div className="p-4 rounded-xl bg-surface border border-subtle space-y-2">
+                <h3 className="text-xs font-semibold text-slate-accent">
                   Realistic Priorities for Tomorrow
                 </h3>
-                <ul className="space-y-1.5 text-xs text-slate-300 list-decimal list-inside">
+                <ul className="space-y-1.5 text-xs text-main list-decimal list-inside">
                   {dailyReport.tomorrowPriorities.map((tp, i) => (
                     <li key={i}>{tp}</li>
                   ))}
@@ -1409,13 +1460,13 @@ export function AICoachView({
       )}
 
       {activeTab === 'weekly' && (
-        <section className="bg-[#111216] border border-white/8 rounded-2xl p-6 space-y-5">
+        <section className="bg-card border border-subtle rounded-2xl p-6 space-y-5">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
             <div>
-              <h2 className="text-base font-semibold text-white">
+              <h2 className="text-base font-semibold text-main">
                 AI Weekly Performance Report
               </h2>
-              <p className="text-xs text-slate-400 mt-0.5">
+              <p className="text-xs text-muted mt-0.5">
                 Structured weekly diagnostic grounded strictly in the last 7 days of logged execution.
               </p>
             </div>
@@ -1423,7 +1474,7 @@ export function AICoachView({
               type="button"
               disabled={weeklyLoading}
               onClick={generateWeeklyReport}
-              className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-semibold text-slate-950 bg-amber-500 hover:bg-amber-400 disabled:opacity-50 rounded-xl whitespace-nowrap shrink-0"
+              className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-semibold text-on-gold bg-gold hover:bg-gold-hover disabled:opacity-50 rounded-xl whitespace-nowrap shrink-0"
             >
               {weeklyLoading ? (
                 <Loader2 className="w-3.5 h-3.5 animate-spin" />
@@ -1437,9 +1488,9 @@ export function AICoachView({
           {weeklyLoading && weeklyRetryStatus && (
             <div
               role="status"
-              className="inline-flex items-center gap-2 text-xs text-amber-300 bg-amber-500/10 border border-amber-500/25 rounded-xl px-3.5 py-2.5"
+              className="inline-flex items-center gap-2 text-xs text-gold bg-gold-soft border border-gold-border rounded-xl px-3.5 py-2.5"
             >
-              <Loader2 className="w-3.5 h-3.5 animate-spin text-amber-400" />
+              <Loader2 className="w-3.5 h-3.5 animate-spin text-gold" />
               <span>
                 {weeklyRetryStatus.message} (Attempt {weeklyRetryStatus.attempt} of{' '}
                 {weeklyRetryStatus.maxRetries})
@@ -1450,17 +1501,17 @@ export function AICoachView({
           {weeklyError && !weeklyLoading && (
             <div
               role="alert"
-              className="text-xs text-rose-300 bg-rose-500/10 border border-rose-500/25 rounded-xl p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3"
+              className="text-xs text-rose-muted bg-rose-soft border border-rose-border rounded-xl p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3"
             >
               <div className="flex items-center gap-2">
-                <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0" />
+                <AlertTriangle className="w-4 h-4 text-rose-muted shrink-0" />
                 <span>{weeklyError}</span>
               </div>
               <button
                 type="button"
                 disabled={weeklyLoading}
                 onClick={generateWeeklyReport}
-                className="inline-flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs font-medium text-white bg-rose-600 hover:bg-rose-500 disabled:opacity-40 rounded-lg transition-colors whitespace-nowrap shrink-0"
+                className="inline-flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs font-medium text-on-rose bg-rose-muted hover:bg-rose-muted-hover disabled:opacity-40 rounded-lg transition-colors whitespace-nowrap shrink-0"
               >
                 <RefreshCw className="w-3.5 h-3.5" />
                 Retry
@@ -1469,13 +1520,13 @@ export function AICoachView({
           )}
 
           {weeklyReport?.usedFallback && weeklyReport.fallbackNotice && (
-            <p className="text-xs text-amber-300 bg-amber-500/10 border border-amber-500/20 rounded-xl px-3.5 py-2">
+            <p className="text-xs text-gold bg-gold-soft border border-gold-border rounded-xl px-3.5 py-2">
               {weeklyReport.fallbackNotice}
             </p>
           )}
 
           {!weeklyReport && !weeklyLoading && (
-            <div className="p-8 rounded-xl bg-[#0A0A0C] border border-white/8 text-center text-xs text-slate-400">
+            <div className="p-8 rounded-xl bg-surface border border-subtle text-center text-xs text-muted">
               Click &ldquo;Generate Weekly Report&rdquo; to compile your 7-day execution metrics and strategic adjustments.
             </div>
           )}
@@ -1483,66 +1534,66 @@ export function AICoachView({
           {weeklyReport && (
             <div className="space-y-4">
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
-                <div className="p-4 rounded-xl bg-[#0A0A0C] border border-white/8">
-                  <p className="text-xs text-slate-400">Overall Completion</p>
-                  <p className="text-2xl font-semibold font-mono tabular-nums text-white mt-1">
+                <div className="p-4 rounded-xl bg-surface border border-subtle">
+                  <p className="text-xs text-muted">Overall Completion</p>
+                  <p className="text-2xl font-semibold font-mono tabular-nums text-main mt-1">
                     {weeklyReport.overallCompletionPct}%
                   </p>
                 </div>
-                <div className="p-4 rounded-xl bg-[#0A0A0C] border border-white/8">
-                  <p className="text-xs text-slate-400">Habit Consistency</p>
-                  <p className="text-2xl font-semibold font-mono tabular-nums text-emerald-400 mt-1">
+                <div className="p-4 rounded-xl bg-surface border border-subtle">
+                  <p className="text-xs text-muted">Habit Consistency</p>
+                  <p className="text-2xl font-semibold font-mono tabular-nums text-slate-accent mt-1">
                     {weeklyReport.habitConsistencyPct}%
                   </p>
                 </div>
-                <div className="p-4 rounded-xl bg-[#0A0A0C] border border-white/8 col-span-2 sm:col-span-1">
-                  <p className="text-xs text-slate-400">Window</p>
-                  <p className="text-xs font-mono tabular-nums text-slate-200 mt-2">
+                <div className="p-4 rounded-xl bg-surface border border-subtle col-span-2 sm:col-span-1">
+                  <p className="text-xs text-muted">Window</p>
+                  <p className="text-xs font-mono tabular-nums text-main mt-2">
                     {weeklyReport.weekLabel}
                   </p>
                 </div>
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="p-4 rounded-xl bg-[#0A0A0C] border border-white/8 space-y-1.5">
-                  <h3 className="text-xs font-semibold text-sky-400">Study Progress</h3>
-                  <p className="text-sm text-slate-200 leading-relaxed">
+                <div className="p-4 rounded-xl bg-surface border border-subtle space-y-1.5">
+                  <h3 className="text-xs font-semibold text-slate-accent">Study Progress</h3>
+                  <p className="text-sm text-main leading-relaxed">
                     {weeklyReport.studyProgress}
                   </p>
                 </div>
-                <div className="p-4 rounded-xl bg-[#0A0A0C] border border-white/8 space-y-1.5">
-                  <h3 className="text-xs font-semibold text-amber-400">
+                <div className="p-4 rounded-xl bg-surface border border-subtle space-y-1.5">
+                  <h3 className="text-xs font-semibold text-gold">
                     Exercise Consistency
                   </h3>
-                  <p className="text-sm text-slate-200 leading-relaxed">
+                  <p className="text-sm text-main leading-relaxed">
                     {weeklyReport.exerciseConsistency}
                   </p>
                 </div>
-                <div className="p-4 rounded-xl bg-[#0A0A0C] border border-white/8 space-y-1.5">
-                  <h3 className="text-xs font-semibold text-slate-300">Time Allocation</h3>
-                  <p className="text-sm text-slate-200 leading-relaxed">
+                <div className="p-4 rounded-xl bg-surface border border-subtle space-y-1.5">
+                  <h3 className="text-xs font-semibold text-muted">Time Allocation</h3>
+                  <p className="text-sm text-main leading-relaxed">
                     {weeklyReport.timeAllocation}
                   </p>
                 </div>
-                <div className="p-4 rounded-xl bg-[#0A0A0C] border border-white/8 space-y-1.5">
-                  <h3 className="text-xs font-semibold text-emerald-400">
+                <div className="p-4 rounded-xl bg-surface border border-subtle space-y-1.5">
+                  <h3 className="text-xs font-semibold text-slate-accent">
                     Biggest Achievement
                   </h3>
-                  <p className="text-sm text-slate-200 leading-relaxed">
+                  <p className="text-sm text-main leading-relaxed">
                     {weeklyReport.biggestAchievement}
                   </p>
                 </div>
-                <div className="p-4 rounded-xl bg-[#0A0A0C] border border-white/8 space-y-1.5">
-                  <h3 className="text-xs font-semibold text-rose-400">Biggest Weakness</h3>
-                  <p className="text-sm text-slate-200 leading-relaxed">
+                <div className="p-4 rounded-xl bg-surface border border-subtle space-y-1.5">
+                  <h3 className="text-xs font-semibold text-rose-muted">Biggest Weakness</h3>
+                  <p className="text-sm text-main leading-relaxed">
                     {weeklyReport.biggestWeakness}
                   </p>
                 </div>
-                <div className="p-4 rounded-xl bg-[#0A0A0C] border border-white/8 space-y-2">
-                  <h3 className="text-xs font-semibold text-white">
+                <div className="p-4 rounded-xl bg-surface border border-subtle space-y-2">
+                  <h3 className="text-xs font-semibold text-main">
                     Recommended Improvements
                   </h3>
-                  <ul className="space-y-1 text-xs text-slate-300 list-disc list-inside">
+                  <ul className="space-y-1 text-xs text-main list-disc list-inside">
                     {weeklyReport.recommendedImprovements.map((imp, idx) => (
                       <li key={idx}>{imp}</li>
                     ))}

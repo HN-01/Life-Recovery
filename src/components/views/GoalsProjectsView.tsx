@@ -234,23 +234,23 @@ export function GoalsProjectsView({
   return (
     <div className="space-y-6">
       {/* Header + Segmented View Switch */}
-      <div className="bg-[#111827] border border-white/8 rounded-xl p-5 flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+      <div className="bg-card border border-subtle rounded-xl p-5 flex flex-col lg:flex-row lg:items-center justify-between gap-4">
         <div>
-          <h1 className="text-xl font-semibold text-white">Goals &amp; Projects</h1>
-          <p className="text-xs text-slate-400 mt-1">
+          <h1 className="text-xl font-semibold text-main">Goals &amp; Projects</h1>
+          <p className="text-xs text-muted mt-1">
             Translate long-term life pillars into milestones, assigned routine blocks, and shipped projects.
           </p>
         </div>
 
         <div className="flex flex-wrap items-center gap-3">
-          <div className="flex items-center gap-1 p-1 bg-[#0B101B] border border-white/10 rounded-lg">
+          <div className="flex items-center gap-1 p-1 bg-surface border border-subtle rounded-lg">
             <button
               type="button"
               onClick={() => switchTab('goals')}
               className={`inline-flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-medium rounded-md transition-colors whitespace-nowrap ${
                 activeTab === 'goals'
-                  ? 'bg-amber-500 text-slate-950 font-semibold'
-                  : 'text-slate-400 hover:text-white'
+                  ? 'bg-gold text-on-gold font-semibold'
+                  : 'text-muted hover:text-main'
               }`}
             >
               <Target className="w-3.5 h-3.5" />
@@ -261,8 +261,8 @@ export function GoalsProjectsView({
               onClick={() => switchTab('projects')}
               className={`inline-flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-medium rounded-md transition-colors whitespace-nowrap ${
                 activeTab === 'projects'
-                  ? 'bg-amber-500 text-slate-950 font-semibold'
-                  : 'text-slate-400 hover:text-white'
+                  ? 'bg-gold text-on-gold font-semibold'
+                  : 'text-muted hover:text-main'
               }`}
             >
               <FolderKanban className="w-3.5 h-3.5" />
@@ -274,7 +274,7 @@ export function GoalsProjectsView({
             <button
               type="button"
               onClick={() => openGoalModal()}
-              className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-medium text-white bg-blue-600 hover:bg-blue-500 rounded-lg transition-colors whitespace-nowrap shrink-0"
+              className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-semibold text-on-gold bg-gold hover:bg-gold-hover rounded-lg transition-colors whitespace-nowrap shrink-0"
             >
               <Plus className="w-3.5 h-3.5" />
               Add Goal
@@ -283,7 +283,7 @@ export function GoalsProjectsView({
             <button
               type="button"
               onClick={() => openProjectModal()}
-              className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-medium text-white bg-blue-600 hover:bg-blue-500 rounded-lg transition-colors whitespace-nowrap shrink-0"
+              className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-semibold text-on-gold bg-gold hover:bg-gold-hover rounded-lg transition-colors whitespace-nowrap shrink-0"
             >
               <Plus className="w-3.5 h-3.5" />
               Add Project
@@ -301,8 +301,8 @@ export function GoalsProjectsView({
               onClick={() => setAreaFilter('All')}
               className={`px-3 py-1.5 text-xs font-medium rounded-lg border transition-colors whitespace-nowrap ${
                 areaFilter === 'All'
-                  ? 'bg-blue-600/20 border-blue-500 text-blue-300'
-                  : 'bg-[#111827] border-white/10 text-slate-400 hover:text-white'
+                  ? 'bg-gold-soft border-gold-border text-gold font-semibold'
+                  : 'bg-card border-subtle text-muted hover:text-main'
               }`}
             >
               All 5 Areas
@@ -314,8 +314,8 @@ export function GoalsProjectsView({
                 onClick={() => setAreaFilter(area)}
                 className={`px-3 py-1.5 text-xs font-medium rounded-lg border transition-colors whitespace-nowrap ${
                   areaFilter === area
-                    ? 'bg-blue-600/20 border-blue-500 text-blue-300'
-                    : 'bg-[#111827] border-white/10 text-slate-400 hover:text-white'
+                    ? 'bg-gold-soft border-gold-border text-gold font-semibold'
+                    : 'bg-card border-subtle text-muted hover:text-main'
                 }`}
               >
                 {area}
@@ -328,18 +328,18 @@ export function GoalsProjectsView({
             return (
               <section
                 key={area}
-                className="bg-[#111827] border border-white/8 rounded-xl overflow-hidden"
+                className="bg-card border border-subtle rounded-xl overflow-hidden"
               >
-                <div className="px-6 py-4 border-b border-white/8 flex items-center justify-between gap-4 bg-[#0E1525]">
+                <div className="px-6 py-4 border-b border-subtle flex items-center justify-between gap-4 bg-surface">
                   <div>
-                    <h2 className="text-base font-semibold text-white">
+                    <h2 className="text-base font-semibold text-main">
                       0{areaIdx + 1}. {area}
                     </h2>
                   </div>
                   <button
                     type="button"
                     onClick={() => openGoalModal(undefined, area)}
-                    className="inline-flex items-center gap-1 text-xs font-medium text-blue-400 hover:text-blue-300 whitespace-nowrap"
+                    className="inline-flex items-center gap-1 text-xs font-medium text-gold hover:text-gold-hover whitespace-nowrap"
                   >
                     <Plus className="w-3.5 h-3.5" />
                     Add Goal Here
@@ -347,11 +347,11 @@ export function GoalsProjectsView({
                 </div>
 
                 {areaGoals.length === 0 ? (
-                  <div className="p-6 text-xs text-slate-400">
+                  <div className="p-6 text-xs text-muted">
                     No goals defined for this life area yet.
                   </div>
                 ) : (
-                  <div className="divide-y divide-white/8">
+                  <div className="divide-y divide-subtle">
                     {areaGoals.map((goal) => {
                       const doneCount = goal.milestones.filter((m) => m.completed).length;
                       const pct =
@@ -365,14 +365,14 @@ export function GoalsProjectsView({
                         <div key={goal.id} className="p-6 space-y-4">
                           <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
                             <div className="space-y-1">
-                              <div className="flex flex-wrap items-center gap-2 text-xs text-slate-400">
+                              <div className="flex flex-wrap items-center gap-2 text-xs text-muted">
                                 <span
                                   className={
                                     goal.status === 'completed'
-                                      ? 'text-emerald-400 font-medium'
+                                      ? 'text-slate-accent font-medium'
                                       : goal.status === 'in_progress'
-                                      ? 'text-blue-400 font-medium'
-                                      : 'text-slate-400'
+                                      ? 'text-gold font-medium'
+                                      : 'text-muted'
                                   }
                                 >
                                   {GOAL_STATUS_LABELS[goal.status]}
@@ -382,13 +382,13 @@ export function GoalsProjectsView({
                                   Deadline: {formatDisplayDate(goal.deadline)}
                                 </span>
                                 <span aria-hidden="true">·</span>
-                                <span className="font-mono tabular-nums text-white">
+                                <span className="font-mono tabular-nums text-main">
                                   {pct}% progress
                                 </span>
                               </div>
-                              <h3 className="text-base font-semibold text-white">{goal.title}</h3>
+                              <h3 className="text-base font-semibold text-main">{goal.title}</h3>
                               {goal.description && (
-                                <p className="text-sm text-slate-400 leading-relaxed">
+                                <p className="text-sm text-muted leading-relaxed">
                                   {goal.description}
                                 </p>
                               )}
@@ -404,7 +404,7 @@ export function GoalsProjectsView({
                                     status: e.target.value as Goal['status'],
                                   })
                                 }
-                                className="px-2.5 py-1.5 bg-[#0B101B] border border-white/10 rounded-lg text-xs text-slate-200"
+                                className="px-2.5 py-1.5 bg-surface border border-subtle rounded-lg text-xs text-main focus:outline-none focus:border-gold"
                               >
                                 <option value="not_started">Not Started</option>
                                 <option value="in_progress">In Progress</option>
@@ -414,7 +414,7 @@ export function GoalsProjectsView({
                               <button
                                 type="button"
                                 onClick={() => openGoalModal(goal)}
-                                className="p-2 text-slate-400 hover:text-white bg-[#0B101B] border border-white/10 rounded-lg"
+                                className="p-2 text-muted hover:text-main bg-surface border border-subtle hover:border-gold-border rounded-lg transition-colors"
                                 aria-label={`Edit ${goal.title}`}
                               >
                                 <Edit2 className="w-3.5 h-3.5" />
@@ -422,7 +422,7 @@ export function GoalsProjectsView({
                               <button
                                 type="button"
                                 onClick={() => setDeletingGoal(goal)}
-                                className="p-2 text-slate-400 hover:text-rose-400 bg-[#0B101B] border border-white/10 rounded-lg"
+                                className="p-2 text-muted hover:text-rose-muted bg-surface border border-subtle hover:border-rose-border rounded-lg transition-colors"
                                 aria-label={`Delete ${goal.title}`}
                               >
                                 <Trash2 className="w-3.5 h-3.5" />
@@ -431,10 +431,10 @@ export function GoalsProjectsView({
                           </div>
 
                           {/* Progress bar */}
-                          <div className="h-1.5 bg-[#0B101B] rounded-full overflow-hidden">
+                          <div className="h-1.5 bg-surface rounded-full overflow-hidden">
                             <div
                               className={`h-full transition-all ${
-                                pct === 100 ? 'bg-emerald-500' : 'bg-blue-500'
+                                pct === 100 ? 'bg-slate-accent' : 'bg-gold'
                               }`}
                               style={{ width: `${pct}%` }}
                             />
@@ -448,13 +448,13 @@ export function GoalsProjectsView({
                                   key={ms.id}
                                   type="button"
                                   onClick={() => toggleMilestone(goal, ms.id)}
-                                  className="flex items-start gap-2.5 p-2.5 rounded-lg bg-[#0B101B] border border-white/8 hover:border-white/20 text-left transition-colors"
+                                  className="flex items-start gap-2.5 p-2.5 rounded-lg bg-surface border border-subtle hover:border-gold-border text-left transition-colors"
                                 >
                                   <span
-                                    className={`mt-0.5 w-4 h-4 rounded border flex items-center justify-center shrink-0 ${
+                                    className={`mt-0.5 w-4 h-4 rounded border flex items-center justify-center shrink-0 transition-colors ${
                                       ms.completed
-                                        ? 'bg-emerald-500 border-emerald-500 text-slate-950'
-                                        : 'border-slate-600'
+                                        ? 'bg-slate-accent border-slate-accent text-on-slate'
+                                        : 'border-subtle bg-card'
                                     }`}
                                   >
                                     {ms.completed && <Check className="w-3 h-3 stroke-[2.5]" />}
@@ -462,8 +462,8 @@ export function GoalsProjectsView({
                                   <span
                                     className={`text-xs leading-snug ${
                                       ms.completed
-                                        ? 'line-through text-slate-500'
-                                        : 'text-slate-200'
+                                        ? 'line-through text-muted'
+                                        : 'text-main'
                                     }`}
                                   >
                                     {ms.title}
@@ -474,19 +474,19 @@ export function GoalsProjectsView({
                           )}
 
                           {/* Linked Routine Tasks & Notes */}
-                          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs text-slate-400 pt-1">
+                          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs text-muted pt-1">
                             <div>
                               {goal.linkedTaskTitles.length > 0 && (
                                 <span>
                                   Assigned daily blocks:{' '}
-                                  <strong className="font-medium text-slate-300">
+                                  <strong className="font-medium text-main">
                                     {goal.linkedTaskTitles.join(' · ')}
                                   </strong>
                                 </span>
                               )}
                             </div>
                             {goal.notes && (
-                              <span className="text-slate-500 italic">Note: {goal.notes}</span>
+                              <span className="text-muted italic">Note: {goal.notes}</span>
                             )}
                           </div>
                         </div>
@@ -502,14 +502,14 @@ export function GoalsProjectsView({
         /* Technical & Creative Projects Section */
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           {state.projects.length === 0 ? (
-            <div className="lg:col-span-2 bg-[#111827] border border-white/8 rounded-xl p-10 text-center space-y-3">
-              <p className="text-sm text-slate-400">
+            <div className="lg:col-span-2 bg-card border border-subtle rounded-xl p-10 text-center space-y-3">
+              <p className="text-sm text-muted">
                 No technical or creative projects added yet.
               </p>
               <button
                 type="button"
                 onClick={() => openProjectModal()}
-                className="px-4 py-2 text-xs font-medium text-white bg-blue-600 hover:bg-blue-500 rounded-lg"
+                className="px-4 py-2 text-xs font-semibold text-on-gold bg-gold hover:bg-gold-hover rounded-lg"
               >
                 Create First Project
               </button>
@@ -527,13 +527,13 @@ export function GoalsProjectsView({
               return (
                 <section
                   key={project.id}
-                  className="bg-[#111827] border border-white/8 rounded-xl p-6 space-y-4 flex flex-col justify-between"
+                  className="bg-card border border-subtle rounded-xl p-6 space-y-4 flex flex-col justify-between"
                 >
                   <div className="space-y-3">
                     <div className="flex items-start justify-between gap-3">
                       <div>
-                        <div className="flex items-center gap-2 text-xs text-slate-400">
-                          <span className="capitalize text-indigo-400 font-medium">
+                        <div className="flex items-center gap-2 text-xs text-muted">
+                          <span className="capitalize text-gold font-medium">
                             {project.type} project
                           </span>
                           <span aria-hidden="true">·</span>
@@ -543,7 +543,7 @@ export function GoalsProjectsView({
                             Due {formatDisplayDate(project.deadline)}
                           </span>
                         </div>
-                        <h3 className="text-lg font-semibold text-white mt-1">
+                        <h3 className="text-lg font-semibold text-main mt-1">
                           {project.title}
                         </h3>
                       </div>
@@ -552,7 +552,7 @@ export function GoalsProjectsView({
                         <button
                           type="button"
                           onClick={() => openProjectModal(project)}
-                          className="p-2 text-slate-400 hover:text-white bg-[#0B101B] border border-white/10 rounded-lg"
+                          className="p-2 text-muted hover:text-main bg-surface border border-subtle hover:border-gold-border rounded-lg transition-colors"
                           aria-label={`Edit ${project.title}`}
                         >
                           <Edit2 className="w-3.5 h-3.5" />
@@ -560,7 +560,7 @@ export function GoalsProjectsView({
                         <button
                           type="button"
                           onClick={() => setDeletingProject(project)}
-                          className="p-2 text-slate-400 hover:text-rose-400 bg-[#0B101B] border border-white/10 rounded-lg"
+                          className="p-2 text-muted hover:text-rose-muted bg-surface border border-subtle hover:border-rose-border rounded-lg transition-colors"
                           aria-label={`Delete ${project.title}`}
                         >
                           <Trash2 className="w-3.5 h-3.5" />
@@ -569,21 +569,21 @@ export function GoalsProjectsView({
                     </div>
 
                     {project.description && (
-                      <p className="text-sm text-slate-400 leading-relaxed">
+                      <p className="text-sm text-muted leading-relaxed">
                         {project.description}
                       </p>
                     )}
 
                     <div>
                       <div className="flex items-center justify-between text-xs mb-1.5 font-mono tabular-nums">
-                        <span className="text-slate-400">
+                        <span className="text-muted">
                           Deliverables ({done}/{project.tasks.length})
                         </span>
-                        <span className="text-white font-medium">{pct}%</span>
+                        <span className="text-main font-medium">{pct}%</span>
                       </div>
-                      <div className="h-1.5 bg-[#0B101B] rounded-full overflow-hidden">
+                      <div className="h-1.5 bg-surface rounded-full overflow-hidden">
                         <div
-                          className="h-full bg-indigo-500 transition-all"
+                          className="h-full bg-slate-accent transition-all"
                           style={{ width: `${pct}%` }}
                         />
                       </div>
@@ -595,20 +595,22 @@ export function GoalsProjectsView({
                           key={pt.id}
                           type="button"
                           onClick={() => toggleProjectTask(project, pt.id)}
-                          className="w-full flex items-start gap-2.5 p-2.5 rounded-lg bg-[#0B101B] border border-white/8 hover:border-white/20 text-left transition-colors"
+                          className="w-full flex items-start gap-2.5 p-2.5 rounded-lg bg-surface border border-subtle hover:border-gold-border text-left transition-colors"
                         >
                           <span
-                            className={`mt-0.5 w-4 h-4 rounded border flex items-center justify-center shrink-0 ${
+                            className={`mt-0.5 w-4 h-4 rounded border flex items-center justify-center shrink-0 transition-colors ${
                               pt.completed
-                                ? 'bg-emerald-500 border-emerald-500 text-slate-950'
-                                : 'border-slate-600'
+                                ? 'bg-slate-accent border-slate-accent text-on-slate'
+                                : 'border-subtle bg-card'
                             }`}
                           >
                             {pt.completed && <Check className="w-3 h-3 stroke-[2.5]" />}
                           </span>
                           <span
                             className={`text-xs ${
-                              pt.completed ? 'line-through text-slate-500' : 'text-slate-200'
+                              pt.completed
+                                ? 'line-through text-muted'
+                                : 'text-main'
                             }`}
                           >
                             {pt.title}
@@ -619,7 +621,7 @@ export function GoalsProjectsView({
                   </div>
 
                   {project.notes && (
-                    <p className="text-xs text-slate-500 pt-3 border-t border-white/8">
+                    <p className="text-xs text-muted pt-3 border-t border-subtle">
                       Notes: {project.notes}
                     </p>
                   )}
@@ -639,13 +641,13 @@ export function GoalsProjectsView({
         <form onSubmit={handleSaveGoal} className="space-y-4">
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
-              <label className="block text-xs font-medium text-slate-400 mb-1.5">
+              <label className="block text-xs font-medium text-muted mb-1.5">
                 Life Area
               </label>
               <select
                 value={gArea}
                 onChange={(e) => setGArea(e.target.value as LifeArea)}
-                className="w-full px-3 py-2.5 bg-[#0B101B] border border-white/10 rounded-lg text-sm text-slate-100"
+                className="w-full px-3 py-2.5 bg-surface border border-subtle rounded-lg text-sm text-main focus:outline-none focus:border-gold"
               >
                 {LIFE_AREAS.map((a) => (
                   <option key={a} value={a}>
@@ -655,41 +657,41 @@ export function GoalsProjectsView({
               </select>
             </div>
             <div>
-              <label className="block text-xs font-medium text-slate-400 mb-1.5">
+              <label className="block text-xs font-medium text-muted mb-1.5">
                 Deadline
               </label>
               <input
                 type="date"
                 value={gDeadline}
                 onChange={(e) => setGDeadline(e.target.value)}
-                className="w-full px-3 py-2.5 bg-[#0B101B] border border-white/10 rounded-lg text-sm font-mono tabular-nums text-slate-100"
+                className="w-full px-3 py-2.5 bg-surface border border-subtle rounded-lg text-sm font-mono tabular-nums text-main focus:outline-none focus:border-gold"
               />
             </div>
           </div>
 
           <div>
-            <label className="block text-xs font-medium text-slate-400 mb-1.5">Goal Title</label>
+            <label className="block text-xs font-medium text-muted mb-1.5">Goal Title</label>
             <input
               type="text"
               value={gTitle}
               onChange={(e) => setGTitle(e.target.value)}
               placeholder="e.g., Complete 45 hours of Data Structures & Projects"
-              className="w-full px-3.5 py-2.5 bg-[#0B101B] border border-white/10 rounded-lg text-sm text-slate-100"
+              className="w-full px-3.5 py-2.5 bg-surface border border-subtle rounded-lg text-sm text-main focus:outline-none focus:border-gold"
             />
           </div>
 
           <div>
-            <label className="block text-xs font-medium text-slate-400 mb-1.5">Description</label>
+            <label className="block text-xs font-medium text-muted mb-1.5">Description</label>
             <textarea
               rows={2}
               value={gDesc}
               onChange={(e) => setGDesc(e.target.value)}
-              className="w-full px-3.5 py-2 bg-[#0B101B] border border-white/10 rounded-lg text-sm text-slate-100 resize-none"
+              className="w-full px-3.5 py-2 bg-surface border border-subtle rounded-lg text-sm text-main focus:outline-none focus:border-gold resize-none"
             />
           </div>
 
           <div>
-            <label className="block text-xs font-medium text-slate-400 mb-1.5">
+            <label className="block text-xs font-medium text-muted mb-1.5">
               Milestones (one per line)
             </label>
             <textarea
@@ -697,13 +699,13 @@ export function GoalsProjectsView({
               value={gMilestonesText}
               onChange={(e) => setGMilestonesText(e.target.value)}
               placeholder="Milestone 1&#10;Milestone 2&#10;Milestone 3"
-              className="w-full px-3.5 py-2 bg-[#0B101B] border border-white/10 rounded-lg text-sm text-slate-100 resize-none"
+              className="w-full px-3.5 py-2 bg-surface border border-subtle rounded-lg text-sm text-main focus:outline-none focus:border-gold resize-none"
             />
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
-              <label className="block text-xs font-medium text-slate-400 mb-1.5">
+              <label className="block text-xs font-medium text-muted mb-1.5">
                 Assigned Daily Tasks (comma-separated)
               </label>
               <input
@@ -711,15 +713,15 @@ export function GoalsProjectsView({
                 value={gLinkedTasks}
                 onChange={(e) => setGLinkedTasks(e.target.value)}
                 placeholder="Programming Practice, Mathematics"
-                className="w-full px-3 py-2 bg-[#0B101B] border border-white/10 rounded-lg text-sm text-slate-100"
+                className="w-full px-3 py-2 bg-surface border border-subtle rounded-lg text-sm text-main focus:outline-none focus:border-gold"
               />
             </div>
             <div>
-              <label className="block text-xs font-medium text-slate-400 mb-1.5">Status</label>
+              <label className="block text-xs font-medium text-muted mb-1.5">Status</label>
               <select
                 value={gStatus}
                 onChange={(e) => setGStatus(e.target.value as Goal['status'])}
-                className="w-full px-3 py-2 bg-[#0B101B] border border-white/10 rounded-lg text-sm text-slate-100"
+                className="w-full px-3 py-2 bg-surface border border-subtle rounded-lg text-sm text-main focus:outline-none focus:border-gold"
               >
                 <option value="not_started">Not Started</option>
                 <option value="in_progress">In Progress</option>
@@ -730,26 +732,26 @@ export function GoalsProjectsView({
           </div>
 
           <div>
-            <label className="block text-xs font-medium text-slate-400 mb-1.5">Notes</label>
+            <label className="block text-xs font-medium text-muted mb-1.5">Notes</label>
             <input
               type="text"
               value={gNotes}
               onChange={(e) => setGNotes(e.target.value)}
-              className="w-full px-3.5 py-2 bg-[#0B101B] border border-white/10 rounded-lg text-sm text-slate-100"
+              className="w-full px-3.5 py-2 bg-surface border border-subtle rounded-lg text-sm text-main focus:outline-none focus:border-gold"
             />
           </div>
 
-          <div className="flex justify-end gap-3 pt-3 border-t border-white/8">
+          <div className="flex justify-end gap-3 pt-3 border-t border-subtle">
             <button
               type="button"
               onClick={() => setGoalModalOpen(false)}
-              className="px-4 py-2 text-sm text-slate-300 bg-white/5 hover:bg-white/10 rounded-lg"
+              className="px-4 py-2 text-sm text-main bg-surface hover:border-gold-border border border-subtle rounded-lg transition-colors"
             >
               Cancel
             </button>
             <button
               type="submit"
-              className="px-5 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-500 rounded-lg"
+              className="px-5 py-2 text-sm font-semibold text-on-gold bg-gold hover:bg-gold-hover rounded-lg transition-colors"
             >
               {editingGoal ? 'Save Goal' : 'Create Goal'}
             </button>
@@ -766,22 +768,22 @@ export function GoalsProjectsView({
         <form onSubmit={handleSaveProject} className="space-y-4">
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <div>
-              <label className="block text-xs font-medium text-slate-400 mb-1.5">Type</label>
+              <label className="block text-xs font-medium text-muted mb-1.5">Type</label>
               <select
                 value={pType}
                 onChange={(e) => setPType(e.target.value as Project['type'])}
-                className="w-full px-3 py-2.5 bg-[#0B101B] border border-white/10 rounded-lg text-sm text-slate-100"
+                className="w-full px-3 py-2.5 bg-surface border border-subtle rounded-lg text-sm text-main focus:outline-none focus:border-gold"
               >
                 <option value="technical">Technical</option>
                 <option value="creative">Creative</option>
               </select>
             </div>
             <div>
-              <label className="block text-xs font-medium text-slate-400 mb-1.5">Status</label>
+              <label className="block text-xs font-medium text-muted mb-1.5">Status</label>
               <select
                 value={pStatus}
                 onChange={(e) => setPStatus(e.target.value as Project['status'])}
-                className="w-full px-3 py-2.5 bg-[#0B101B] border border-white/10 rounded-lg text-sm text-slate-100"
+                className="w-full px-3 py-2.5 bg-surface border border-subtle rounded-lg text-sm text-main focus:outline-none focus:border-gold"
               >
                 <option value="planning">Planning</option>
                 <option value="active">Active</option>
@@ -790,69 +792,69 @@ export function GoalsProjectsView({
               </select>
             </div>
             <div>
-              <label className="block text-xs font-medium text-slate-400 mb-1.5">Deadline</label>
+              <label className="block text-xs font-medium text-muted mb-1.5">Deadline</label>
               <input
                 type="date"
                 value={pDeadline}
                 onChange={(e) => setPDeadline(e.target.value)}
-                className="w-full px-3 py-2.5 bg-[#0B101B] border border-white/10 rounded-lg text-sm font-mono tabular-nums text-slate-100"
+                className="w-full px-3 py-2.5 bg-surface border border-subtle rounded-lg text-sm font-mono tabular-nums text-main focus:outline-none focus:border-gold"
               />
             </div>
           </div>
 
           <div>
-            <label className="block text-xs font-medium text-slate-400 mb-1.5">Project Title</label>
+            <label className="block text-xs font-medium text-muted mb-1.5">Project Title</label>
             <input
               type="text"
               value={pTitle}
               onChange={(e) => setPTitle(e.target.value)}
-              className="w-full px-3.5 py-2.5 bg-[#0B101B] border border-white/10 rounded-lg text-sm text-slate-100"
+              className="w-full px-3.5 py-2.5 bg-surface border border-subtle rounded-lg text-sm text-main focus:outline-none focus:border-gold"
             />
           </div>
 
           <div>
-            <label className="block text-xs font-medium text-slate-400 mb-1.5">Description</label>
+            <label className="block text-xs font-medium text-muted mb-1.5">Description</label>
             <textarea
               rows={2}
               value={pDesc}
               onChange={(e) => setPDesc(e.target.value)}
-              className="w-full px-3.5 py-2 bg-[#0B101B] border border-white/10 rounded-lg text-sm text-slate-100 resize-none"
+              className="w-full px-3.5 py-2 bg-surface border border-subtle rounded-lg text-sm text-main focus:outline-none focus:border-gold resize-none"
             />
           </div>
 
           <div>
-            <label className="block text-xs font-medium text-slate-400 mb-1.5">
+            <label className="block text-xs font-medium text-muted mb-1.5">
               Project Tasks / Deliverables (one per line)
             </label>
             <textarea
               rows={3}
               value={pTasksText}
               onChange={(e) => setPTasksText(e.target.value)}
-              className="w-full px-3.5 py-2 bg-[#0B101B] border border-white/10 rounded-lg text-sm text-slate-100 resize-none"
+              className="w-full px-3.5 py-2 bg-surface border border-subtle rounded-lg text-sm text-main focus:outline-none focus:border-gold resize-none"
             />
           </div>
 
           <div>
-            <label className="block text-xs font-medium text-slate-400 mb-1.5">Notes</label>
+            <label className="block text-xs font-medium text-muted mb-1.5">Notes</label>
             <input
               type="text"
               value={pNotes}
               onChange={(e) => setPNotes(e.target.value)}
-              className="w-full px-3.5 py-2 bg-[#0B101B] border border-white/10 rounded-lg text-sm text-slate-100"
+              className="w-full px-3.5 py-2 bg-surface border border-subtle rounded-lg text-sm text-main focus:outline-none focus:border-gold"
             />
           </div>
 
-          <div className="flex justify-end gap-3 pt-3 border-t border-white/8">
+          <div className="flex justify-end gap-3 pt-3 border-t border-subtle">
             <button
               type="button"
               onClick={() => setProjectModalOpen(false)}
-              className="px-4 py-2 text-sm text-slate-300 bg-white/5 hover:bg-white/10 rounded-lg"
+              className="px-4 py-2 text-sm text-main bg-surface hover:border-gold-border border border-subtle rounded-lg transition-colors"
             >
               Cancel
             </button>
             <button
               type="submit"
-              className="px-5 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-500 rounded-lg"
+              className="px-5 py-2 text-sm font-semibold text-on-gold bg-gold hover:bg-gold-hover rounded-lg transition-colors"
             >
               {editingProject ? 'Save Project' : 'Create Project'}
             </button>

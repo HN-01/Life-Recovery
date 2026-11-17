@@ -8,6 +8,7 @@ import {
   Coffee,
   Edit2,
   Plus,
+  SlidersHorizontal,
   Trash2,
 } from 'lucide-react';
 import { AppState, RoutineTask, TaskCategory } from '../../types';
@@ -34,6 +35,7 @@ interface DailyRoutineViewProps {
   onOpenEditTask: (task: RoutineTask) => void;
   onDeleteTask: (task: RoutineTask) => void;
   onOpenSmartPlan: () => void;
+  onOpenTimetableBuilder?: () => void;
 }
 
 export function DailyRoutineView({
@@ -47,6 +49,7 @@ export function DailyRoutineView({
   onOpenEditTask,
   onDeleteTask,
   onOpenSmartPlan,
+  onOpenTimetableBuilder,
 }: DailyRoutineViewProps) {
   const [categoryFilter, setCategoryFilter] = useState<'All' | TaskCategory>('All');
   const sortedDays = getSortedDays(state);
@@ -54,8 +57,8 @@ export function DailyRoutineView({
 
   if (!currentDay) {
     return (
-      <div className="bg-white dark:bg-[#111216] border border-slate-200 dark:border-white/8 rounded-xl p-8 text-center">
-        <p className="text-sm text-slate-500 dark:text-slate-400">
+      <div className="bg-card border border-subtle rounded-xl p-8 text-center">
+        <p className="text-sm text-muted">
           No days found in your 30-day schedule.
         </p>
       </div>
@@ -75,11 +78,11 @@ export function DailyRoutineView({
   return (
     <div className="space-y-6">
       {/* Header & Day Switcher */}
-      <div className="bg-white dark:bg-[#111216] border border-slate-200 dark:border-white/8 rounded-xl p-5 flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+      <div className="bg-card border border-subtle rounded-xl p-5 flex flex-col lg:flex-row lg:items-center justify-between gap-4">
         <div>
-          <div className="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
-            <Calendar className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
-            <span className="font-mono tabular-nums text-amber-700 dark:text-amber-400 font-medium">
+          <div className="flex items-center gap-2 text-xs text-muted">
+            <Calendar className="w-3.5 h-3.5 text-gold" />
+            <span className="font-mono tabular-nums text-gold font-medium">
               Day {currentDay.dayNumber} of 30
             </span>
             <span aria-hidden="true">·</span>
@@ -87,18 +90,18 @@ export function DailyRoutineView({
             <span aria-hidden="true">·</span>
             <span>{SCHEDULE_TYPE_LABELS[currentDay.scheduleType]}</span>
           </div>
-          <h1 className="text-xl font-semibold text-slate-900 dark:text-white mt-1">
+          <h1 className="text-xl font-semibold text-main mt-1">
             Detailed Daily Execution Timeline
           </h1>
         </div>
 
         <div className="flex flex-wrap items-center gap-2.5">
-          <div className="flex items-center bg-slate-100 dark:bg-[#0A0A0C] border border-slate-200 dark:border-white/10 rounded-lg p-1">
+          <div className="flex items-center bg-surface border border-subtle rounded-lg p-1">
             <button
               type="button"
               disabled={!prevDay}
               onClick={() => prevDay && onSelectDate(prevDay.date)}
-              className="p-1.5 text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white disabled:opacity-30 transition-colors"
+              className="p-1.5 text-muted hover:text-main disabled:opacity-30 transition-colors"
               aria-label="Previous day"
             >
               <ChevronLeft className="w-4 h-4" />
@@ -106,7 +109,7 @@ export function DailyRoutineView({
             <button
               type="button"
               onClick={() => onSelectDate(now.dateStr)}
-              className="px-3 py-1 text-xs font-medium text-slate-700 dark:text-slate-200 hover:text-slate-900 dark:hover:text-white whitespace-nowrap"
+              className="px-3 py-1 text-xs font-medium text-main hover:text-gold whitespace-nowrap transition-colors"
             >
               Today
             </button>
@@ -114,26 +117,37 @@ export function DailyRoutineView({
               type="button"
               disabled={!nextDay}
               onClick={() => nextDay && onSelectDate(nextDay.date)}
-              className="p-1.5 text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white disabled:opacity-30 transition-colors"
+              className="p-1.5 text-muted hover:text-main disabled:opacity-30 transition-colors"
               aria-label="Next day"
             >
               <ChevronRight className="w-4 h-4" />
             </button>
           </div>
 
+          {onOpenTimetableBuilder && (
+            <button
+              type="button"
+              onClick={onOpenTimetableBuilder}
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-medium text-main bg-surface hover:border-gold-border border border-subtle rounded-lg transition-colors whitespace-nowrap shrink-0"
+            >
+              <SlidersHorizontal className="w-3.5 h-3.5 text-gold" />
+              Customize Weekly Timetable
+            </button>
+          )}
+
           <button
             type="button"
             onClick={() => onOpenAddTask(true)}
-            className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-medium text-slate-700 dark:text-slate-200 bg-slate-100 dark:bg-white/5 hover:bg-slate-200/70 dark:hover:bg-white/10 border border-slate-200 dark:border-white/10 rounded-lg transition-colors whitespace-nowrap shrink-0"
+            className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-medium text-main bg-surface hover:border-gold-border border border-subtle rounded-lg transition-colors whitespace-nowrap shrink-0"
           >
-            <Coffee className="w-3.5 h-3.5 text-slate-500 dark:text-slate-400" />
+            <Coffee className="w-3.5 h-3.5 text-muted" />
             Add Break / Buffer
           </button>
 
           <button
             type="button"
             onClick={onOpenSmartPlan}
-            className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-medium text-amber-800 dark:text-amber-300 bg-amber-500/12 hover:bg-amber-500/20 border border-amber-500/30 rounded-lg transition-colors whitespace-nowrap shrink-0"
+            className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-medium text-gold bg-gold-soft hover:border-gold border border-gold-border rounded-lg transition-colors whitespace-nowrap shrink-0"
           >
             <CalendarClock className="w-3.5 h-3.5" />
             Generate Tomorrow&apos;s Smart Plan
@@ -142,7 +156,7 @@ export function DailyRoutineView({
           <button
             type="button"
             onClick={() => onOpenAddTask(false)}
-            className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-semibold text-slate-950 bg-amber-500 hover:bg-amber-400 rounded-lg transition-colors whitespace-nowrap shrink-0"
+            className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-semibold text-on-gold bg-gold hover:bg-gold-hover rounded-lg transition-colors whitespace-nowrap shrink-0"
           >
             <Plus className="w-3.5 h-3.5" />
             Add Activity
@@ -151,27 +165,27 @@ export function DailyRoutineView({
       </div>
 
       {/* Filter & Summary Bar */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white dark:bg-[#111216] border border-slate-200 dark:border-white/8 rounded-xl px-5 py-3.5">
-        <div className="flex items-center gap-4 text-xs text-slate-600 dark:text-slate-300 font-mono tabular-nums">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-card border border-subtle rounded-xl px-5 py-3.5">
+        <div className="flex items-center gap-4 text-xs text-muted font-mono tabular-nums">
           <span>
             Completed:{' '}
-            <strong className="text-emerald-600 dark:text-emerald-400">
+            <strong className="text-slate-accent">
               {stats.completed}/{stats.total}
             </strong>
           </span>
-          <span aria-hidden="true" className="text-slate-300 dark:text-slate-600">
+          <span aria-hidden="true" className="text-muted/50">
             |
           </span>
           <span>
             Completion:{' '}
-            <strong className="text-slate-900 dark:text-white">{stats.completionRate}%</strong>
+            <strong className="text-main">{stats.completionRate}%</strong>
           </span>
-          <span aria-hidden="true" className="text-slate-300 dark:text-slate-600">
+          <span aria-hidden="true" className="text-muted/50">
             |
           </span>
           <span>
             Productive:{' '}
-            <strong className="text-amber-700 dark:text-amber-400">
+            <strong className="text-gold">
               {(stats.plannedProductiveMinutes / 60).toFixed(1)}h
             </strong>
           </span>
@@ -180,7 +194,7 @@ export function DailyRoutineView({
         <div className="flex items-center gap-2">
           <label
             htmlFor="routine-cat-filter"
-            className="text-xs text-slate-500 dark:text-slate-400 whitespace-nowrap"
+            className="text-xs text-muted whitespace-nowrap"
           >
             Filter category:
           </label>
@@ -188,7 +202,7 @@ export function DailyRoutineView({
             id="routine-cat-filter"
             value={categoryFilter}
             onChange={(e) => setCategoryFilter(e.target.value as 'All' | TaskCategory)}
-            className="px-3 py-1.5 bg-slate-50 dark:bg-[#0A0A0C] border border-slate-200 dark:border-white/10 rounded-lg text-xs text-slate-900 dark:text-slate-200 focus:outline-none focus:border-amber-500"
+            className="px-3 py-1.5 bg-surface border border-subtle rounded-lg text-xs text-main focus:outline-none focus:border-gold"
           >
             <option value="All">All Categories</option>
             {ALL_CATEGORIES.map((cat) => (
@@ -201,22 +215,22 @@ export function DailyRoutineView({
       </div>
 
       {/* Vertical Timeline */}
-      <div className="bg-white dark:bg-[#111216] border border-slate-200 dark:border-white/8 rounded-xl overflow-hidden">
+      <div className="bg-card border border-subtle rounded-xl overflow-hidden">
         {filteredTasks.length === 0 ? (
           <div className="p-10 text-center space-y-3">
-            <p className="text-sm text-slate-500 dark:text-slate-400">
+            <p className="text-sm text-muted">
               No activities match this filter for Day {currentDay.dayNumber}.
             </p>
             <button
               type="button"
               onClick={() => onOpenAddTask(false)}
-              className="px-4 py-2 text-xs font-semibold text-slate-950 bg-amber-500 hover:bg-amber-400 rounded-lg transition-colors"
+              className="px-4 py-2 text-xs font-semibold text-on-gold bg-gold hover:bg-gold-hover rounded-lg transition-colors"
             >
               Schedule Activity
             </button>
           </div>
         ) : (
-          <div className="divide-y divide-slate-200 dark:divide-white/8">
+          <div className="divide-y divide-subtle">
             {filteredTasks.map((task) => {
               const effState = getEffectiveTaskState(task, currentDay.date, now);
               const dur = getDurationMinutes(task.startTime, task.endTime);
@@ -225,8 +239,8 @@ export function DailyRoutineView({
               return (
                 <div
                   key={task.id}
-                  className={`p-5 flex flex-col md:flex-row md:items-start gap-4 transition-colors hover:bg-slate-50 dark:hover:bg-white/[0.02] ${
-                    effState === 'active' ? 'bg-amber-50/70 dark:bg-amber-500/[0.06]' : ''
+                  className={`p-5 flex flex-col md:flex-row md:items-start gap-4 transition-colors hover:bg-surface/60 ${
+                    effState === 'active' ? 'bg-gold-soft/60' : ''
                   }`}
                 >
                   {/* Time & Checkbox */}
@@ -237,18 +251,18 @@ export function DailyRoutineView({
                       aria-label={`Toggle completion for ${task.title}`}
                       className={`mt-0.5 w-5 h-5 rounded border flex items-center justify-center shrink-0 transition-colors ${
                         isDone
-                          ? 'bg-emerald-500 border-emerald-500 text-slate-950'
-                          : 'border-slate-300 dark:border-slate-600 hover:border-amber-500 bg-white dark:bg-[#0A0A0C]'
+                          ? 'bg-slate-accent border-slate-accent text-on-slate'
+                          : 'border-subtle hover:border-gold bg-surface'
                       }`}
                     >
                       {isDone && <Check className="w-3.5 h-3.5 stroke-[2.5]" />}
                     </button>
 
                     <div className="font-mono tabular-nums">
-                      <p className="text-sm font-medium text-slate-900 dark:text-slate-100">
+                      <p className="text-sm font-medium text-main">
                         {formatTime12h(task.startTime)} – {formatTime12h(task.endTime)}
                       </p>
-                      <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                      <p className="text-xs text-muted mt-0.5">
                         Expected duration: {formatDuration(dur)}
                       </p>
                     </div>
@@ -259,9 +273,7 @@ export function DailyRoutineView({
                     <div className="flex flex-wrap items-center justify-between gap-2">
                       <h3
                         className={`text-base font-medium ${
-                          isDone
-                            ? 'line-through text-slate-400 dark:text-slate-500'
-                            : 'text-slate-900 dark:text-white'
+                          isDone ? 'line-through text-muted' : 'text-main'
                         }`}
                       >
                         {task.title}
@@ -269,22 +281,20 @@ export function DailyRoutineView({
                       <TaskStatusIndicator state={effState} />
                     </div>
 
-                    <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500 dark:text-slate-400 mt-1">
-                      <span className="text-slate-700 dark:text-slate-300">{task.category}</span>
+                    <div className="flex flex-wrap items-center gap-2 text-xs text-muted mt-1">
+                      <span className="text-main">{task.category}</span>
                       <span aria-hidden="true">·</span>
                       <span>Priority: {task.priority}</span>
                       {task.isBreak && (
                         <>
                           <span aria-hidden="true">·</span>
-                          <span className="text-slate-500 dark:text-slate-400">
-                            Recovery Buffer
-                          </span>
+                          <span className="text-muted">Recovery Buffer</span>
                         </>
                       )}
                     </div>
 
                     {task.description && (
-                      <p className="text-sm text-slate-600 dark:text-slate-400 mt-2 leading-relaxed">
+                      <p className="text-sm text-muted mt-2 leading-relaxed">
                         {task.description}
                       </p>
                     )}
@@ -302,7 +312,7 @@ export function DailyRoutineView({
                           e.target.value as RoutineTask['status']
                         )
                       }
-                      className="px-2.5 py-1.5 bg-slate-50 dark:bg-[#0A0A0C] border border-slate-200 dark:border-white/10 rounded-lg text-xs text-slate-800 dark:text-slate-200 capitalize focus:outline-none focus:border-amber-500"
+                      className="px-2.5 py-1.5 bg-surface border border-subtle rounded-lg text-xs text-main capitalize focus:outline-none focus:border-gold"
                     >
                       <option value="pending">pending</option>
                       <option value="completed">completed</option>
@@ -313,7 +323,7 @@ export function DailyRoutineView({
                     <button
                       type="button"
                       onClick={() => onOpenEditTask(task)}
-                      className="p-2 text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white bg-slate-50 dark:bg-[#0A0A0C] border border-slate-200 dark:border-white/10 rounded-lg transition-colors"
+                      className="p-2 text-muted hover:text-main bg-surface border border-subtle hover:border-gold-border rounded-lg transition-colors"
                       aria-label={`Edit ${task.title}`}
                     >
                       <Edit2 className="w-3.5 h-3.5" />
@@ -321,7 +331,7 @@ export function DailyRoutineView({
                     <button
                       type="button"
                       onClick={() => onDeleteTask(task)}
-                      className="p-2 text-slate-500 dark:text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 bg-slate-50 dark:bg-[#0A0A0C] border border-slate-200 dark:border-white/10 rounded-lg transition-colors"
+                      className="p-2 text-muted hover:text-rose-muted bg-surface border border-subtle hover:border-rose-border rounded-lg transition-colors"
                       aria-label={`Delete ${task.title}`}
                     >
                       <Trash2 className="w-3.5 h-3.5" />

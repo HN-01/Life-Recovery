@@ -9,28 +9,28 @@ export function TaskStatusIndicator({ state }: TaskStatusIndicatorProps) {
   switch (state) {
     case 'completed':
       return (
-        <span className="inline-flex items-center gap-1.5 text-xs font-medium text-emerald-600 dark:text-emerald-400 whitespace-nowrap shrink-0">
+        <span className="inline-flex items-center gap-1.5 text-xs font-medium text-slate-accent whitespace-nowrap shrink-0">
           <CheckCircle2 className="w-3.5 h-3.5" />
           Completed
         </span>
       );
     case 'active':
       return (
-        <span className="inline-flex items-center gap-1.5 text-xs font-medium text-blue-600 dark:text-blue-400 whitespace-nowrap shrink-0">
+        <span className="inline-flex items-center gap-1.5 text-xs font-medium text-gold whitespace-nowrap shrink-0">
           <PlayCircle className="w-3.5 h-3.5" />
-          Currently active
+          Pending · Active
         </span>
       );
     case 'missed':
       return (
-        <span className="inline-flex items-center gap-1.5 text-xs font-medium text-rose-600 dark:text-rose-400 whitespace-nowrap shrink-0">
+        <span className="inline-flex items-center gap-1.5 text-xs font-medium text-rose-muted whitespace-nowrap shrink-0">
           <XCircle className="w-3.5 h-3.5" />
           Missed
         </span>
       );
     case 'skipped':
       return (
-        <span className="inline-flex items-center gap-1.5 text-xs font-medium text-amber-700 dark:text-amber-400 whitespace-nowrap shrink-0">
+        <span className="inline-flex items-center gap-1.5 text-xs font-medium text-neutral-status whitespace-nowrap shrink-0">
           <MinusCircle className="w-3.5 h-3.5" />
           Skipped
         </span>
@@ -38,9 +38,9 @@ export function TaskStatusIndicator({ state }: TaskStatusIndicatorProps) {
     case 'upcoming':
     default:
       return (
-        <span className="inline-flex items-center gap-1.5 text-xs font-medium text-slate-500 dark:text-slate-400 whitespace-nowrap shrink-0">
+        <span className="inline-flex items-center gap-1.5 text-xs font-medium text-gold/85 whitespace-nowrap shrink-0">
           <Clock className="w-3.5 h-3.5" />
-          Upcoming
+          Pending
         </span>
       );
   }

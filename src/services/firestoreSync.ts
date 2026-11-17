@@ -18,6 +18,8 @@ import {
   Goal,
   Habit,
   Project,
+  PushSubscriptionRecord,
+  SmartNotification,
   WeeklyReview,
 } from '../types';
 import {
@@ -25,6 +27,7 @@ import {
   DEFAULT_PRAYER_TIMES,
   DEFAULT_SCHEDULING_PREFERENCES,
   DEFAULT_TEMPLATES,
+  getDefaultNotificationPreferences,
 } from '../data/starterData';
 import { db, handleFirestoreError, OperationType } from './firebase';
 
@@ -84,12 +87,23 @@ function buildProfileDoc(uid: string, profile: AppState['profile'], updatedAt: s
     startDate: ensureNonEmptyDate(profile.startDate),
     wakeTime: ensureTimeStr(profile.wakeTime, '05:30'),
     sleepTime: ensureTimeStr(profile.sleepTime, '22:30'),
-    fixedCommitments: (profile.fixedCommitments || []).slice(0, 30),
+    fixedCommitments: (profile.fixedCommitments || []).slice(0, 40),
     primaryGoalAreas: (profile.primaryGoalAreas || []).slice(0, 10),
     prayerTimes: profile.prayerTimes || { ...DEFAULT_PRAYER_TIMES },
     schedulingPreferences:
       profile.schedulingPreferences || { ...DEFAULT_SCHEDULING_PREFERENCES },
     dashboardPreferences: profile.dashboardPreferences,
+    notificationPreferences:
+      profile.notificationPreferences ||
+      getDefaultNotificationPreferences(profile.wakeTime, profile.sleepTime),
+    basicSchedule: profile.basicSchedule,
+    personalActivities: profile.personalActivities
+      ? profile.personalActivities.slice(0, 40)
+      : undefined,
+    goalTargets: profile.goalTargets ? profile.goalTargets.slice(0, 30) : undefined,
+    weeklyTimetable: profile.weeklyTimetable,
+    onboardingDraft: profile.onboardingDraft,
+    onboardingSkipped: profile.onboardingSkipped,
     onboardingCompleted: Boolean(profile.onboardingCompleted),
     updatedAt,
   });
@@ -184,6 +198,54 @@ function buildCoachConversationDoc(
     messages: (conv.messages || []).slice(-200),
     createdAt: (conv.createdAt || updatedAt).slice(0, 40),
     updatedAt: (conv.updatedAt || updatedAt).slice(0, 40),
+  });
+}
+
+function buildNotificationDoc(
+  uid: string,
+  nid: string,
+  notif: SmartNotification,
+  updatedAt: string
+) {
+  return stripUndefined({
+    uid,
+    id: nid,
+    dedupeKey: (notif.dedupeKey || nid).slice(0, 240),
+    type: notif.type,
+    title: (notif.title || 'Notification').slice(0, 240),
+    body: (notif.body || '').slice(0, 1000),
+    createdAt: (notif.createdAt || updatedAt).slice(0, 40),
+    scheduledFor: notif.scheduledFor ? notif.scheduledFor.slice(0, 40) : undefined,
+    dateStr: ensureNonEmptyDate(notif.dateStr),
+    taskId: notif.taskId ? notif.taskId.slice(0, 128) : undefined,
+    taskTitle: notif.taskTitle ? notif.taskTitle.slice(0, 240) : undefined,
+    taskStartTime: notif.taskStartTime ? notif.taskStartTime.slice(0, 16) : undefined,
+    taskEndTime: notif.taskEndTime ? notif.taskEndTime.slice(0, 16) : undefined,
+    goalId: notif.goalId ? notif.goalId.slice(0, 128) : undefined,
+    read: Boolean(notif.read),
+    dismissed: notif.dismissed !== undefined ? Boolean(notif.dismissed) : undefined,
+    snoozedUntil: notif.snoozedUntil ? notif.snoozedUntil.slice(0, 40) : undefined,
+    deliveredChannels: (notif.deliveredChannels || ['in_app']).slice(0, 5),
+    targetSection: (notif.targetSection || 'dashboard').slice(0, 40),
+    updatedAt,
+  });
+}
+
+function buildPushSubscriptionDoc(
+  uid: string,
+  sid: string,
+  sub: PushSubscriptionRecord,
+  updatedAt: string
+) {
+  return stripUndefined({
+    uid,
+    id: sid,
+    endpoint: (sub.endpoint || '').slice(0, 2000),
+    keys: sub.keys,
+    userAgent: sub.userAgent ? sub.userAgent.slice(0, 300) : undefined,
+    timezone: sub.timezone ? sub.timezone.slice(0, 80) : undefined,
+    createdAt: (sub.createdAt || updatedAt).slice(0, 40),
+    updatedAt,
   });
 }
 
@@ -312,6 +374,18 @@ export async function writeFullAppStateToFirestore(
     const cid = sanitizeId(conv.id);
     const convRef = doc(db, `users/${uid}/coachConversations/${cid}`);
     batch.set(convRef, buildCoachConversationDoc(uid, cid, conv, updatedAt));
+  }
+
+  for (const notif of (state.notifications || []).slice(-100)) {
+    const nid = sanitizeId(notif.id);
+    const notifRef = doc(db, `users/${uid}/notifications/${nid}`);
+    batch.set(notifRef, buildNotificationDoc(uid, nid, notif, updatedAt));
+  }
+
+  for (const sub of state.pushSubscriptions || []) {
+    const sid = sanitizeId(sub.id);
+    const subRef = doc(db, `users/${uid}/pushSubscriptions/${sid}`);
+    batch.set(subRef, buildPushSubscriptionDoc(uid, sid, sub, updatedAt));
   }
 
   try {
@@ -494,6 +568,56 @@ export async function syncAppStateDiffToFirestore(
     }
   }
 
+  // Notifications diff
+  const prevNotifs = new Map((prev.notifications || []).map((n) => [n.id, n]));
+  const nextNotifs = new Map((next.notifications || []).map((n) => [n.id, n]));
+  for (const [id, notif] of nextNotifs) {
+    if (JSON.stringify(prevNotifs.get(id)) !== JSON.stringify(notif)) {
+      const nid = sanitizeId(id);
+      const nPath = `users/${uid}/notifications/${nid}`;
+      operations.push(
+        setDoc(doc(db, nPath), buildNotificationDoc(uid, nid, notif, updatedAt)).catch((e) =>
+          handleFirestoreError(e, OperationType.WRITE, nPath)
+        )
+      );
+    }
+  }
+  for (const id of prevNotifs.keys()) {
+    if (!nextNotifs.has(id)) {
+      const nPath = `users/${uid}/notifications/${sanitizeId(id)}`;
+      operations.push(
+        deleteDoc(doc(db, nPath)).catch((e) =>
+          handleFirestoreError(e, OperationType.DELETE, nPath)
+        )
+      );
+    }
+  }
+
+  // Push subscriptions diff
+  const prevSubs = new Map((prev.pushSubscriptions || []).map((s) => [s.id, s]));
+  const nextSubs = new Map((next.pushSubscriptions || []).map((s) => [s.id, s]));
+  for (const [id, sub] of nextSubs) {
+    if (JSON.stringify(prevSubs.get(id)) !== JSON.stringify(sub)) {
+      const sid = sanitizeId(id);
+      const sPath = `users/${uid}/pushSubscriptions/${sid}`;
+      operations.push(
+        setDoc(doc(db, sPath), buildPushSubscriptionDoc(uid, sid, sub, updatedAt)).catch((e) =>
+          handleFirestoreError(e, OperationType.WRITE, sPath)
+        )
+      );
+    }
+  }
+  for (const id of prevSubs.keys()) {
+    if (!nextSubs.has(id)) {
+      const sPath = `users/${uid}/pushSubscriptions/${sanitizeId(id)}`;
+      operations.push(
+        deleteDoc(doc(db, sPath)).catch((e) =>
+          handleFirestoreError(e, OperationType.DELETE, sPath)
+        )
+      );
+    }
+  }
+
   await Promise.all(operations);
 }
 
@@ -525,6 +649,8 @@ export function subscribeUserAppState(
     projects: [],
     weeklyReviews: [],
     coachConversations: [],
+    notifications: [],
+    pushSubscriptions: [],
   };
 
   let readyProfile = false;
@@ -547,6 +673,10 @@ export function subscribeUserAppState(
         coachConversations: [...(liveState.coachConversations || [])].sort((a, b) =>
           b.updatedAt.localeCompare(a.updatedAt)
         ),
+        notifications: [...(liveState.notifications || [])].sort((a, b) =>
+          b.createdAt.localeCompare(a.createdAt)
+        ),
+        pushSubscriptions: [...(liveState.pushSubscriptions || [])],
       },
       fromCache
     );
@@ -575,6 +705,15 @@ export function subscribeUserAppState(
             schedulingPreferences:
               data.schedulingPreferences || { ...DEFAULT_SCHEDULING_PREFERENCES },
             dashboardPreferences: data.dashboardPreferences,
+            notificationPreferences:
+              data.notificationPreferences ||
+              getDefaultNotificationPreferences(data.wakeTime, data.sleepTime),
+            basicSchedule: data.basicSchedule,
+            personalActivities: data.personalActivities,
+            goalTargets: data.goalTargets,
+            weeklyTimetable: data.weeklyTimetable,
+            onboardingDraft: data.onboardingDraft,
+            onboardingSkipped: Boolean(data.onboardingSkipped),
             onboardingCompleted: Boolean(data.onboardingCompleted),
           };
         }
@@ -776,6 +915,73 @@ export function subscribeUserAppState(
       (err) => {
         onSyncError(err);
         handleFirestoreError(err, OperationType.LIST, coachPath);
+      }
+    )
+  );
+
+  const notifsPath = `users/${uid}/notifications`;
+  unsubs.push(
+    onSnapshot(
+      query(collection(db, notifsPath), where('uid', '==', uid)),
+      (snap) => {
+        const next: SmartNotification[] = [];
+        snap.forEach((d) => {
+          const v = d.data();
+          next.push({
+            id: v.id,
+            dedupeKey: v.dedupeKey,
+            type: v.type,
+            title: v.title,
+            body: v.body,
+            createdAt: v.createdAt,
+            scheduledFor: v.scheduledFor,
+            dateStr: v.dateStr,
+            taskId: v.taskId,
+            taskTitle: v.taskTitle,
+            taskStartTime: v.taskStartTime,
+            taskEndTime: v.taskEndTime,
+            goalId: v.goalId,
+            read: Boolean(v.read),
+            dismissed: Boolean(v.dismissed),
+            snoozedUntil: v.snoozedUntil,
+            deliveredChannels: v.deliveredChannels || ['in_app'],
+            targetSection: v.targetSection || 'dashboard',
+          });
+        });
+        liveState.notifications = next;
+        emit(snap.metadata.fromCache);
+      },
+      (err) => {
+        onSyncError(err);
+        handleFirestoreError(err, OperationType.LIST, notifsPath);
+      }
+    )
+  );
+
+  const pushPath = `users/${uid}/pushSubscriptions`;
+  unsubs.push(
+    onSnapshot(
+      query(collection(db, pushPath), where('uid', '==', uid)),
+      (snap) => {
+        const next: PushSubscriptionRecord[] = [];
+        snap.forEach((d) => {
+          const v = d.data();
+          next.push({
+            id: v.id,
+            endpoint: v.endpoint,
+            keys: v.keys,
+            userAgent: v.userAgent,
+            timezone: v.timezone,
+            createdAt: v.createdAt,
+            updatedAt: v.updatedAt,
+          });
+        });
+        liveState.pushSubscriptions = next;
+        emit(snap.metadata.fromCache);
+      },
+      (err) => {
+        onSyncError(err);
+        handleFirestoreError(err, OperationType.LIST, pushPath);
       }
     )
   );

@@ -51,6 +51,8 @@ export interface RoutineTask {
   isBreak?: boolean;
   goalId?: string;
   isFixedCommitment?: boolean;
+  reminderMinutesBefore?: NotificationTimingOption[];
+  deleted?: boolean;
 }
 
 export interface DailyReviewEntry {
@@ -148,6 +150,65 @@ export interface FixedCommitment {
   endTime: string;
   daysOfWeek: number[]; // 0..6
   category: TaskCategory;
+  location?: string;
+  description?: string;
+  recurrence?: 'recurring' | 'one_time';
+  oneTimeDate?: string; // YYYY-MM-DD when recurrence === 'one_time'
+}
+
+export type PreferredTimeOfDay =
+  | 'early_morning'
+  | 'morning'
+  | 'afternoon'
+  | 'evening'
+  | 'night'
+  | 'flexible';
+
+export interface BasicScheduleConfig {
+  wakeTime: string; // HH:mm
+  bedTime: string; // HH:mm
+  preferredSleepHours: number;
+  activeDaysOfWeek: number[]; // 0=Sun..6=Sat
+  preferredWorkStart?: string; // HH:mm
+  preferredWorkEnd?: string; // HH:mm
+  breakDurationMinutes: number;
+  breakFrequencyMinutes: number;
+  maxDailyFocusHours: number;
+}
+
+export interface PersonalActivityInput {
+  id: string;
+  name: string;
+  category: TaskCategory;
+  preferredDurationMinutes: number;
+  priority: TaskPriority;
+  preferredTimeOfDay: PreferredTimeOfDay;
+  weeklyFrequency: number; // 1..7
+  description?: string;
+}
+
+export interface GoalTimeTarget {
+  id: string;
+  title: string;
+  area: LifeArea;
+  targetHoursPerWeek: number;
+  deadline?: string;
+  notes?: string;
+}
+
+/** 0=Sun .. 6=Sat personalized weekly routine blocks */
+export type WeeklyTimetable = Record<number, TemplateTask[]>;
+
+export interface OnboardingDraft {
+  currentStep: 1 | 2 | 3 | 4 | 5;
+  name: string;
+  startDate: string;
+  basicSchedule: BasicScheduleConfig;
+  commitments: FixedCommitment[];
+  activities: PersonalActivityInput[];
+  goalTargets: GoalTimeTarget[];
+  weeklyTimetable?: WeeklyTimetable;
+  updatedAt: string;
 }
 
 export interface PrayerTimes {
@@ -168,8 +229,10 @@ export interface SchedulingPreferences {
 }
 
 export type DashboardWidgetId =
-  | 'metrics'
+  | 'daily_progress'
   | 'timeline'
+  | 'insights'
+  | 'metrics'
   | 'ai_coach'
   | 'priorities'
   | 'progress'
@@ -180,6 +243,70 @@ export interface DashboardPreferences {
   hiddenWidgets: DashboardWidgetId[];
   compactTimeline?: boolean;
   updatedAt?: string;
+}
+
+export type NotificationType =
+  | 'upcoming_activity'
+  | 'activity_starting'
+  | 'missed_activity'
+  | 'upcoming_deadline'
+  | 'daily_routine_reminder'
+  | 'daily_summary'
+  | 'weekly_summary';
+
+export type NotificationTimingOption = 0 | 5 | 10 | 15 | 30;
+
+export type NotificationChannel = 'in_app' | 'browser' | 'web_push';
+
+export interface NotificationPreferences {
+  enabled: boolean;
+  browserNotificationsEnabled: boolean;
+  webPushEnabled: boolean;
+  timezone: string;
+  defaultTimings: NotificationTimingOption[];
+  activityTimingOverrides: Record<string, NotificationTimingOption[]>;
+  quietHoursEnabled: boolean;
+  quietHoursStart: string; // HH:mm
+  quietHoursEnd: string;   // HH:mm
+  respectSleepSchedule: boolean;
+  dailyRoutineReminderTime: string; // HH:mm
+  dailySummaryTime: string; // HH:mm
+  enabledTypes: Record<NotificationType, boolean>;
+  updatedAt?: string;
+}
+
+export interface SmartNotification {
+  id: string;
+  dedupeKey: string;
+  type: NotificationType;
+  title: string;
+  body: string;
+  createdAt: string;
+  scheduledFor?: string;
+  dateStr: string;
+  taskId?: string;
+  taskTitle?: string;
+  taskStartTime?: string;
+  taskEndTime?: string;
+  goalId?: string;
+  read: boolean;
+  dismissed?: boolean;
+  snoozedUntil?: string;
+  deliveredChannels: NotificationChannel[];
+  targetSection: NavSection;
+}
+
+export interface PushSubscriptionRecord {
+  id: string;
+  endpoint: string;
+  keys: {
+    p256dh: string;
+    auth: string;
+  };
+  userAgent?: string;
+  timezone?: string;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface UserProfile {
@@ -194,6 +321,13 @@ export interface UserProfile {
   prayerTimes?: PrayerTimes;
   schedulingPreferences?: SchedulingPreferences;
   dashboardPreferences?: DashboardPreferences;
+  notificationPreferences?: NotificationPreferences;
+  basicSchedule?: BasicScheduleConfig;
+  personalActivities?: PersonalActivityInput[];
+  goalTargets?: GoalTimeTarget[];
+  weeklyTimetable?: WeeklyTimetable;
+  onboardingDraft?: OnboardingDraft;
+  onboardingSkipped?: boolean;
   onboardingCompleted: boolean;
 }
 
@@ -237,6 +371,11 @@ export interface RoutineDiagnostic {
   recommendation: string;
 }
 
+export interface CoachCitation {
+  title: string;
+  uri: string;
+}
+
 export interface CoachMessage {
   id: string;
   role: 'user' | 'assistant';
@@ -244,6 +383,9 @@ export interface CoachMessage {
   createdAt: string;
   suggestedChanges?: ProposedScheduleChange[];
   suggestedGoalActions?: ProposedGoalAction[];
+  citations?: CoachCitation[];
+  webSearchQueries?: string[];
+  isWebGrounded?: boolean;
   modelUsed?: string;
   usedFallback?: boolean;
   fallbackNotice?: string;
@@ -297,6 +439,8 @@ export interface AppState {
   projects: Project[];
   weeklyReviews: WeeklyReview[];
   coachConversations?: CoachConversation[];
+  notifications?: SmartNotification[];
+  pushSubscriptions?: PushSubscriptionRecord[];
 }
 
 export type RoutineUpdateScope = 'this_day' | 'this_and_future' | 'all_30_days';

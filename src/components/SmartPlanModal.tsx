@@ -85,8 +85,8 @@ export function SmartPlanModal({
     >
       <div className="space-y-5">
         {/* Strategic Summary */}
-        <div className="p-4 rounded-lg bg-slate-50 dark:bg-[#0A0A0C] border border-slate-200 dark:border-white/10 space-y-1.5">
-          <div className="flex items-center gap-2 text-xs font-medium text-amber-700 dark:text-amber-400">
+        <div className="p-4 rounded-lg bg-surface border border-subtle space-y-1.5">
+          <div className="flex items-center gap-2 text-xs font-medium text-gold">
             <Sparkles className="w-3.5 h-3.5" />
             <span>
               {loadingAiEnrichment
@@ -94,7 +94,7 @@ export function SmartPlanModal({
                 : 'Schedule Intelligence Summary'}
             </span>
           </div>
-          <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
+          <p className="text-xs text-muted leading-relaxed">
             {summaryNote}
           </p>
         </div>
@@ -102,21 +102,21 @@ export function SmartPlanModal({
         {/* Diagnostics */}
         {diagnostics.length > 0 && (
           <div className="space-y-2">
-            <h3 className="text-xs font-semibold text-slate-700 dark:text-slate-300">
+            <h3 className="text-xs font-semibold text-main">
               Routine Health Diagnostics ({diagnostics.length})
             </h3>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
               {diagnostics.map((d) => (
                 <div
                   key={d.id}
-                  className="p-3 rounded-lg bg-slate-50 dark:bg-[#0A0A0C] border border-slate-200 dark:border-white/8 space-y-1"
+                  className="p-3 rounded-lg bg-surface border border-subtle space-y-1"
                 >
-                  <div className="flex items-center gap-1.5 text-xs font-medium text-amber-700 dark:text-amber-300">
+                  <div className="flex items-center gap-1.5 text-xs font-medium text-gold">
                     <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
                     <span>{d.issue}</span>
                   </div>
-                  <p className="text-[11px] text-slate-500 dark:text-slate-400">{d.evidence}</p>
-                  <p className="text-[11px] text-slate-700 dark:text-slate-300">
+                  <p className="text-[11px] text-muted">{d.evidence}</p>
+                  <p className="text-[11px] text-main">
                     {d.recommendation}
                   </p>
                 </div>
@@ -128,7 +128,7 @@ export function SmartPlanModal({
         {/* Proposed Changes */}
         <div className="space-y-2.5">
           <div className="flex items-center justify-between">
-            <h3 className="text-xs font-semibold text-slate-700 dark:text-slate-300">
+            <h3 className="text-xs font-semibold text-main">
               Proposed Schedule Adjustments ({items.length})
             </h3>
             {items.length > 0 && (
@@ -139,7 +139,7 @@ export function SmartPlanModal({
                     prev.map((i) => ({ ...i, approvalState: 'accepted' }))
                   )
                 }
-                className="text-xs font-medium text-amber-700 dark:text-amber-400 hover:text-amber-800 dark:hover:text-amber-300"
+                className="text-xs font-medium text-gold hover:text-gold-hover"
               >
                 Accept All
               </button>
@@ -147,11 +147,11 @@ export function SmartPlanModal({
           </div>
 
           {items.length === 0 ? (
-            <div className="p-6 rounded-lg bg-slate-50 dark:bg-[#0A0A0C] border border-slate-200 dark:border-white/8 text-center text-xs text-slate-500 dark:text-slate-400">
+            <div className="p-6 rounded-lg bg-surface border border-subtle text-center text-xs text-muted">
               Tomorrow&apos;s routine already covers your core pillars within capacity and has no urgent missed carry-overs.
             </div>
           ) : (
-            <div className="divide-y divide-slate-200 dark:divide-white/8 border border-slate-200 dark:border-white/8 rounded-lg overflow-hidden bg-slate-50 dark:bg-[#0A0A0C]">
+            <div className="divide-y divide-subtle border border-subtle rounded-lg overflow-hidden bg-surface">
               {items.map((item) => {
                 const isEditing = editingId === item.id;
                 const conflicts = findConflictingTasks(
@@ -164,8 +164,8 @@ export function SmartPlanModal({
                   <div key={item.id} className="p-4 space-y-3">
                     <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
                       <div className="space-y-1 min-w-0 flex-1">
-                        <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
-                          <span className="font-mono tabular-nums text-amber-700 dark:text-amber-400 font-medium">
+                        <div className="flex flex-wrap items-center gap-2 text-xs text-muted">
+                          <span className="font-mono tabular-nums text-gold font-medium">
                             {formatTime12h(item.suggestedStartTime)} –{' '}
                             {formatTime12h(item.suggestedEndTime)}
                           </span>
@@ -179,21 +179,21 @@ export function SmartPlanModal({
                           <span>{item.category}</span>
                         </div>
 
-                        <p className="text-sm font-semibold text-slate-900 dark:text-white">
+                        <p className="text-sm font-semibold text-main">
                           {item.title}
                         </p>
 
                         {item.originalTime && (
-                          <p className="text-xs text-slate-500 dark:text-slate-400 font-mono tabular-nums">
+                          <p className="text-xs text-muted font-mono tabular-nums">
                             Original time: {item.originalTime}
                           </p>
                         )}
-                        <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
+                        <p className="text-xs text-muted leading-relaxed">
                           Reason: {item.reason}
                         </p>
 
                         {conflicts.length > 0 && (
-                          <p className="text-xs text-amber-700 dark:text-amber-400">
+                          <p className="text-xs text-gold">
                             Overlaps with: {conflicts.map((c) => c.title).join(', ')}
                           </p>
                         )}
@@ -206,8 +206,8 @@ export function SmartPlanModal({
                           onClick={() => setApproval(item.id, 'accepted')}
                           className={`inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium rounded-lg border transition-colors ${
                             item.approvalState === 'accepted'
-                              ? 'bg-emerald-600 border-emerald-500 text-white'
-                              : 'bg-white dark:bg-[#111216] border-slate-200 dark:border-white/10 text-slate-700 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'
+                              ? 'bg-slate-accent border-slate-accent text-on-slate'
+                              : 'bg-card border-subtle text-main hover:border-slate-border'
                           }`}
                         >
                           <Check className="w-3.5 h-3.5" />
@@ -216,7 +216,7 @@ export function SmartPlanModal({
                         <button
                           type="button"
                           onClick={() => setEditingId(isEditing ? null : item.id)}
-                          className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium rounded-lg border bg-white dark:bg-[#111216] border-slate-200 dark:border-white/10 text-slate-700 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white transition-colors"
+                          className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium rounded-lg border bg-card border-subtle text-main hover:border-gold-border transition-colors"
                         >
                           <Edit2 className="w-3.5 h-3.5" />
                           Edit
@@ -226,8 +226,8 @@ export function SmartPlanModal({
                           onClick={() => setApproval(item.id, 'rejected')}
                           className={`inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium rounded-lg border transition-colors ${
                             item.approvalState === 'rejected'
-                              ? 'bg-rose-500/15 border-rose-500/40 text-rose-700 dark:text-rose-200'
-                              : 'bg-white dark:bg-[#111216] border-slate-200 dark:border-white/10 text-slate-500 dark:text-slate-400 hover:text-rose-600 dark:hover:text-rose-300'
+                              ? 'bg-rose-soft border-rose-border text-rose-muted'
+                              : 'bg-card border-subtle text-muted hover:text-rose-muted'
                           }`}
                         >
                           <X className="w-3.5 h-3.5" />
@@ -237,12 +237,12 @@ export function SmartPlanModal({
                     </div>
 
                     {isEditing && (
-                      <div className="p-3 bg-white dark:bg-[#111216] border border-slate-200 dark:border-white/10 rounded-lg grid grid-cols-1 sm:grid-cols-4 gap-2.5">
+                      <div className="p-3 bg-card border border-subtle rounded-lg grid grid-cols-1 sm:grid-cols-4 gap-2.5">
                         <input
                           type="text"
                           value={item.title}
                           onChange={(e) => updateItem(item.id, { title: e.target.value })}
-                          className="sm:col-span-2 px-2.5 py-1.5 bg-slate-50 dark:bg-[#0A0A0C] border border-slate-200 dark:border-white/10 rounded text-xs text-slate-900 dark:text-white"
+                          className="sm:col-span-2 px-2.5 py-1.5 bg-surface border border-subtle rounded text-xs text-main focus:outline-none focus:border-gold"
                         />
                         <input
                           type="time"
@@ -250,7 +250,7 @@ export function SmartPlanModal({
                           onChange={(e) =>
                             updateItem(item.id, { suggestedStartTime: e.target.value })
                           }
-                          className="px-2.5 py-1.5 bg-slate-50 dark:bg-[#0A0A0C] border border-slate-200 dark:border-white/10 rounded text-xs font-mono tabular-nums text-slate-900 dark:text-white"
+                          className="px-2.5 py-1.5 bg-surface border border-subtle rounded text-xs font-mono tabular-nums text-main focus:outline-none focus:border-gold"
                         />
                         <input
                           type="time"
@@ -258,7 +258,7 @@ export function SmartPlanModal({
                           onChange={(e) =>
                             updateItem(item.id, { suggestedEndTime: e.target.value })
                           }
-                          className="px-2.5 py-1.5 bg-slate-50 dark:bg-[#0A0A0C] border border-slate-200 dark:border-white/10 rounded text-xs font-mono tabular-nums text-slate-900 dark:text-white"
+                          className="px-2.5 py-1.5 bg-surface border border-subtle rounded text-xs font-mono tabular-nums text-main focus:outline-none focus:border-gold"
                         />
                       </div>
                     )}
@@ -269,15 +269,15 @@ export function SmartPlanModal({
           )}
         </div>
 
-        <div className="flex items-center justify-between gap-3 pt-3 border-t border-slate-200 dark:border-white/8">
-          <p className="text-xs text-slate-500 dark:text-slate-400 font-mono tabular-nums">
+        <div className="flex items-center justify-between gap-3 pt-3 border-t border-subtle">
+          <p className="text-xs text-muted font-mono tabular-nums">
             {acceptedCount} change(s) ready to apply
           </p>
           <div className="flex items-center gap-3">
             <button
               type="button"
               onClick={onClose}
-              className="px-4 py-2 text-xs font-medium text-slate-700 dark:text-slate-300 bg-slate-100 dark:bg-white/5 hover:bg-slate-200/70 dark:hover:bg-white/10 rounded-lg"
+              className="px-4 py-2 text-xs font-medium text-main bg-surface hover:border-gold-border border border-subtle rounded-lg transition-colors"
             >
               Close Without Applying
             </button>
@@ -288,7 +288,7 @@ export function SmartPlanModal({
                 onApplyAccepted(items.filter((i) => i.approvalState === 'accepted'));
                 onClose();
               }}
-              className="px-4 py-2 text-xs font-semibold text-slate-950 bg-amber-500 hover:bg-amber-400 disabled:opacity-40 rounded-lg transition-colors"
+              className="px-4 py-2 text-xs font-semibold text-on-gold bg-gold hover:bg-gold-hover disabled:opacity-40 rounded-lg transition-colors"
             >
               Apply Accepted Changes ({acceptedCount})
             </button>

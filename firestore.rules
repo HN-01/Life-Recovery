@@ -33,7 +33,9 @@ service cloud.firestore {
         && data.keys().hasOnly([
           'uid', 'name', 'email', 'photoUrl', 'startDate', 'wakeTime', 'sleepTime',
           'fixedCommitments', 'primaryGoalAreas', 'prayerTimes', 'schedulingPreferences',
-          'dashboardPreferences', 'onboardingCompleted', 'updatedAt'
+          'dashboardPreferences', 'notificationPreferences', 'basicSchedule',
+          'personalActivities', 'goalTargets', 'weeklyTimetable', 'onboardingDraft',
+          'onboardingSkipped', 'onboardingCompleted', 'updatedAt'
         ])
         && data.uid is string && data.uid == userId
         && data.name is string && data.name.size() >= 1 && data.name.size() <= 120
@@ -42,11 +44,18 @@ service cloud.firestore {
         && data.startDate is string && data.startDate.size() >= 8 && data.startDate.size() <= 20
         && data.wakeTime is string && data.wakeTime.size() >= 4 && data.wakeTime.size() <= 10
         && data.sleepTime is string && data.sleepTime.size() >= 4 && data.sleepTime.size() <= 10
-        && (!('fixedCommitments' in data) || (data.fixedCommitments is list && data.fixedCommitments.size() <= 30))
+        && (!('fixedCommitments' in data) || (data.fixedCommitments is list && data.fixedCommitments.size() <= 40))
         && (!('primaryGoalAreas' in data) || (data.primaryGoalAreas is list && data.primaryGoalAreas.size() <= 10))
         && (!('prayerTimes' in data) || data.prayerTimes is map)
         && (!('schedulingPreferences' in data) || data.schedulingPreferences is map)
         && (!('dashboardPreferences' in data) || data.dashboardPreferences is map)
+        && (!('notificationPreferences' in data) || data.notificationPreferences is map)
+        && (!('basicSchedule' in data) || data.basicSchedule is map)
+        && (!('personalActivities' in data) || (data.personalActivities is list && data.personalActivities.size() <= 40))
+        && (!('goalTargets' in data) || (data.goalTargets is list && data.goalTargets.size() <= 30))
+        && (!('weeklyTimetable' in data) || data.weeklyTimetable is map)
+        && (!('onboardingDraft' in data) || data.onboardingDraft is map)
+        && (!('onboardingSkipped' in data) || data.onboardingSkipped is bool)
         && data.onboardingCompleted is bool
         && data.updatedAt is string && data.updatedAt.size() <= 40;
     }
@@ -146,6 +155,51 @@ service cloud.firestore {
         && data.updatedAt is string && data.updatedAt.size() <= 40;
     }
 
+    function isValidNotification(data, userId, notifId) {
+      return data.keys().hasAll(['uid', 'id', 'dedupeKey', 'type', 'title', 'body', 'createdAt', 'dateStr', 'read', 'deliveredChannels', 'targetSection', 'updatedAt'])
+        && data.keys().hasOnly([
+          'uid', 'id', 'dedupeKey', 'type', 'title', 'body', 'createdAt', 'scheduledFor',
+          'dateStr', 'taskId', 'taskTitle', 'taskStartTime', 'taskEndTime', 'goalId',
+          'read', 'dismissed', 'snoozedUntil', 'deliveredChannels', 'targetSection', 'updatedAt'
+        ])
+        && data.uid is string && data.uid == userId
+        && data.id is string && data.id == notifId && isValidId(data.id)
+        && data.dedupeKey is string && data.dedupeKey.size() >= 1 && data.dedupeKey.size() <= 240
+        && data.type in [
+          'upcoming_activity', 'activity_starting', 'missed_activity',
+          'upcoming_deadline', 'daily_routine_reminder', 'daily_summary', 'weekly_summary'
+        ]
+        && data.title is string && data.title.size() >= 1 && data.title.size() <= 240
+        && data.body is string && data.body.size() <= 1000
+        && data.createdAt is string && data.createdAt.size() <= 40
+        && (!('scheduledFor' in data) || (data.scheduledFor is string && data.scheduledFor.size() <= 40))
+        && data.dateStr is string && data.dateStr.size() >= 8 && data.dateStr.size() <= 20
+        && (!('taskId' in data) || (data.taskId is string && data.taskId.size() <= 128))
+        && (!('taskTitle' in data) || (data.taskTitle is string && data.taskTitle.size() <= 240))
+        && (!('taskStartTime' in data) || (data.taskStartTime is string && data.taskStartTime.size() <= 16))
+        && (!('taskEndTime' in data) || (data.taskEndTime is string && data.taskEndTime.size() <= 16))
+        && (!('goalId' in data) || (data.goalId is string && data.goalId.size() <= 128))
+        && data.read is bool
+        && (!('dismissed' in data) || data.dismissed is bool)
+        && (!('snoozedUntil' in data) || (data.snoozedUntil is string && data.snoozedUntil.size() <= 40))
+        && data.deliveredChannels is list && data.deliveredChannels.size() <= 5
+        && data.targetSection is string && data.targetSection.size() <= 40
+        && data.updatedAt is string && data.updatedAt.size() <= 40;
+    }
+
+    function isValidPushSubscription(data, userId, subId) {
+      return data.keys().hasAll(['uid', 'id', 'endpoint', 'keys', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['uid', 'id', 'endpoint', 'keys', 'userAgent', 'timezone', 'createdAt', 'updatedAt'])
+        && data.uid is string && data.uid == userId
+        && data.id is string && data.id == subId && isValidId(data.id)
+        && data.endpoint is string && data.endpoint.size() >= 8 && data.endpoint.size() <= 2000
+        && data.keys is map
+        && (!('userAgent' in data) || (data.userAgent is string && data.userAgent.size() <= 300))
+        && (!('timezone' in data) || (data.timezone is string && data.timezone.size() <= 80))
+        && data.createdAt is string && data.createdAt.size() <= 40
+        && data.updatedAt is string && data.updatedAt.size() <= 40;
+    }
+
     // 4. User-Scoped Collections (Strict UID Isolation)
     match /users/{userId} {
       allow read, write: if false;
@@ -159,7 +213,9 @@ service cloud.firestore {
           && incoming().diff(existing()).affectedKeys().hasOnly([
             'uid', 'name', 'email', 'photoUrl', 'startDate', 'wakeTime', 'sleepTime',
             'fixedCommitments', 'primaryGoalAreas', 'prayerTimes', 'schedulingPreferences',
-            'dashboardPreferences', 'onboardingCompleted', 'updatedAt'
+            'dashboardPreferences', 'notificationPreferences', 'basicSchedule',
+            'personalActivities', 'goalTargets', 'weeklyTimetable', 'onboardingDraft',
+            'onboardingSkipped', 'onboardingCompleted', 'updatedAt'
           ]);
         allow delete: if isValidId(userId) && isOwner(userId);
       }
@@ -176,7 +232,7 @@ service cloud.firestore {
 
       match /days/{dayDate} {
         allow get: if isValidId(userId) && isValidId(dayDate) && isOwner(userId);
-        allow list: if isValidId(userId) && isOwner(userId);
+        allow list: if isValidId(userId) && isOwner(userId) && resource.data.uid == request.auth.uid;
         allow create: if isValidId(userId) && isValidId(dayDate) && isOwner(userId) && isValidDayPlan(incoming(), userId);
         allow update: if isValidId(userId) && isValidId(dayDate) && isOwner(userId)
           && isValidDayPlan(incoming(), userId)
@@ -187,7 +243,7 @@ service cloud.firestore {
 
       match /habits/{habitId} {
         allow get: if isValidId(userId) && isValidId(habitId) && isOwner(userId);
-        allow list: if isValidId(userId) && isOwner(userId);
+        allow list: if isValidId(userId) && isOwner(userId) && resource.data.uid == request.auth.uid;
         allow create: if isValidId(userId) && isValidId(habitId) && isOwner(userId) && isValidHabit(incoming(), userId, habitId);
         allow update: if isValidId(userId) && isValidId(habitId) && isOwner(userId)
           && isValidHabit(incoming(), userId, habitId)
@@ -199,7 +255,7 @@ service cloud.firestore {
 
       match /goals/{goalId} {
         allow get: if isValidId(userId) && isValidId(goalId) && isOwner(userId);
-        allow list: if isValidId(userId) && isOwner(userId);
+        allow list: if isValidId(userId) && isOwner(userId) && resource.data.uid == request.auth.uid;
         allow create: if isValidId(userId) && isValidId(goalId) && isOwner(userId) && isValidGoal(incoming(), userId, goalId);
         allow update: if isValidId(userId) && isValidId(goalId) && isOwner(userId)
           && isValidGoal(incoming(), userId, goalId)
@@ -211,7 +267,7 @@ service cloud.firestore {
 
       match /projects/{projectId} {
         allow get: if isValidId(userId) && isValidId(projectId) && isOwner(userId);
-        allow list: if isValidId(userId) && isOwner(userId);
+        allow list: if isValidId(userId) && isOwner(userId) && resource.data.uid == request.auth.uid;
         allow create: if isValidId(userId) && isValidId(projectId) && isOwner(userId) && isValidProject(incoming(), userId, projectId);
         allow update: if isValidId(userId) && isValidId(projectId) && isOwner(userId)
           && isValidProject(incoming(), userId, projectId)
@@ -223,7 +279,7 @@ service cloud.firestore {
 
       match /weeklyReviews/{weekId} {
         allow get: if isValidId(userId) && isValidId(weekId) && isOwner(userId);
-        allow list: if isValidId(userId) && isOwner(userId);
+        allow list: if isValidId(userId) && isOwner(userId) && resource.data.uid == request.auth.uid;
         allow create: if isValidId(userId) && isValidId(weekId) && isOwner(userId) && isValidWeeklyReview(incoming(), userId);
         allow update: if isValidId(userId) && isValidId(weekId) && isOwner(userId)
           && isValidWeeklyReview(incoming(), userId)
@@ -234,7 +290,7 @@ service cloud.firestore {
 
       match /coachConversations/{conversationId} {
         allow get: if isValidId(userId) && isValidId(conversationId) && isOwner(userId);
-        allow list: if isValidId(userId) && isOwner(userId);
+        allow list: if isValidId(userId) && isOwner(userId) && resource.data.uid == request.auth.uid;
         allow create: if isValidId(userId) && isValidId(conversationId) && isOwner(userId) && isValidCoachConversation(incoming(), userId, conversationId);
         allow update: if isValidId(userId) && isValidId(conversationId) && isOwner(userId)
           && isValidCoachConversation(incoming(), userId, conversationId)
@@ -242,6 +298,34 @@ service cloud.firestore {
           && (!('id' in existing()) || incoming().id == existing().id)
           && incoming().diff(existing()).affectedKeys().hasOnly(['uid', 'id', 'title', 'messages', 'createdAt', 'updatedAt']);
         allow delete: if isValidId(userId) && isValidId(conversationId) && isOwner(userId);
+      }
+
+      match /notifications/{notificationId} {
+        allow get: if isValidId(userId) && isValidId(notificationId) && isOwner(userId);
+        allow list: if isValidId(userId) && isOwner(userId) && resource.data.uid == request.auth.uid;
+        allow create: if isValidId(userId) && isValidId(notificationId) && isOwner(userId) && isValidNotification(incoming(), userId, notificationId);
+        allow update: if isValidId(userId) && isValidId(notificationId) && isOwner(userId)
+          && isValidNotification(incoming(), userId, notificationId)
+          && (!('uid' in existing()) || incoming().uid == existing().uid)
+          && (!('id' in existing()) || incoming().id == existing().id)
+          && incoming().diff(existing()).affectedKeys().hasOnly([
+            'uid', 'id', 'dedupeKey', 'type', 'title', 'body', 'createdAt', 'scheduledFor',
+            'dateStr', 'taskId', 'taskTitle', 'taskStartTime', 'taskEndTime', 'goalId',
+            'read', 'dismissed', 'snoozedUntil', 'deliveredChannels', 'targetSection', 'updatedAt'
+          ]);
+        allow delete: if isValidId(userId) && isValidId(notificationId) && isOwner(userId);
+      }
+
+      match /pushSubscriptions/{subId} {
+        allow get: if isValidId(userId) && isValidId(subId) && isOwner(userId);
+        allow list: if isValidId(userId) && isOwner(userId) && resource.data.uid == request.auth.uid;
+        allow create: if isValidId(userId) && isValidId(subId) && isOwner(userId) && isValidPushSubscription(incoming(), userId, subId);
+        allow update: if isValidId(userId) && isValidId(subId) && isOwner(userId)
+          && isValidPushSubscription(incoming(), userId, subId)
+          && (!('uid' in existing()) || incoming().uid == existing().uid)
+          && (!('id' in existing()) || incoming().id == existing().id)
+          && incoming().diff(existing()).affectedKeys().hasOnly(['uid', 'id', 'endpoint', 'keys', 'userAgent', 'timezone', 'createdAt', 'updatedAt']);
+        allow delete: if isValidId(userId) && isValidId(subId) && isOwner(userId);
       }
     }
   }

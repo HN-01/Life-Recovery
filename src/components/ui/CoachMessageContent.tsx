@@ -19,20 +19,20 @@ function renderInline(text: string): React.ReactNode[] {
       nodes.push(
         <code
           key={`${match.index}-code`}
-          className="px-1.5 py-0.5 rounded bg-slate-200/80 dark:bg-white/10 text-amber-800 dark:text-amber-300 font-mono text-[12px]"
+          className="px-1.5 py-0.5 rounded bg-card border border-subtle text-gold font-mono text-[12px]"
         >
           {token.slice(1, -1)}
         </code>
       );
     } else if (token.startsWith('**') && token.endsWith('**')) {
       nodes.push(
-        <strong key={`${match.index}-b`} className="font-semibold text-slate-900 dark:text-white">
+        <strong key={`${match.index}-b`} className="font-semibold text-main">
           {token.slice(2, -2)}
         </strong>
       );
     } else if (token.startsWith('*') && token.endsWith('*')) {
       nodes.push(
-        <em key={`${match.index}-i`} className="italic text-slate-700 dark:text-slate-200">
+        <em key={`${match.index}-i`} className="italic text-main">
           {token.slice(1, -1)}
         </em>
       );
@@ -51,7 +51,7 @@ export function CoachMessageContent({ content }: CoachMessageContentProps) {
   const segments = content.split(/(```[\s\S]*?```)/g);
 
   return (
-    <div className="space-y-2.5 text-sm leading-relaxed text-slate-700 dark:text-slate-200">
+    <div className="space-y-2.5 text-sm leading-relaxed text-main">
       {segments.map((seg, segIdx) => {
         if (seg.startsWith('```') && seg.endsWith('```')) {
           const inner = seg.slice(3, -3);
@@ -61,14 +61,14 @@ export function CoachMessageContent({ content }: CoachMessageContentProps) {
           return (
             <div
               key={`code-${segIdx}`}
-              className="rounded-lg overflow-hidden border border-slate-200 dark:border-white/10 bg-slate-100 dark:bg-[#07080A]"
+              className="rounded-lg overflow-hidden border border-subtle bg-card"
             >
               {lang && (
-                <div className="px-3 py-1.5 border-b border-slate-200 dark:border-white/8 text-[11px] font-mono uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                <div className="px-3 py-1.5 border-b border-subtle text-[11px] font-mono uppercase tracking-wider text-muted bg-surface">
                   {lang}
                 </div>
               )}
-              <pre className="p-3 overflow-x-auto text-xs font-mono text-slate-800 dark:text-amber-200/95 leading-relaxed">
+              <pre className="p-3 overflow-x-auto text-xs font-mono text-main leading-relaxed">
                 <code>{codeBody.trimEnd()}</code>
               </pre>
             </div>
@@ -86,7 +86,7 @@ export function CoachMessageContent({ content }: CoachMessageContentProps) {
             blocks.push(
               <ol
                 key={`ol-${segIdx}-${keySuffix}`}
-                className="list-decimal list-outside pl-5 space-y-1 text-slate-700 dark:text-slate-200"
+                className="list-decimal list-outside pl-5 space-y-1 text-main"
               >
                 {listItems.map((item, idx) => (
                   <li key={idx}>{renderInline(item.text)}</li>
@@ -97,7 +97,7 @@ export function CoachMessageContent({ content }: CoachMessageContentProps) {
             blocks.push(
               <ul
                 key={`ul-${segIdx}-${keySuffix}`}
-                className="list-disc list-outside pl-5 space-y-1 text-slate-700 dark:text-slate-200"
+                className="list-disc list-outside pl-5 space-y-1 text-main"
               >
                 {listItems.map((item, idx) => (
                   <li key={idx}>{renderInline(item.text)}</li>
@@ -123,7 +123,7 @@ export function CoachMessageContent({ content }: CoachMessageContentProps) {
             blocks.push(
               <h4
                 key={`h-${segIdx}-${lineIdx}`}
-                className="text-sm font-semibold text-amber-700 dark:text-amber-300 pt-1"
+                className="text-sm font-semibold text-gold pt-1"
               >
                 {renderInline(headingMatch[2])}
               </h4>
@@ -149,7 +149,7 @@ export function CoachMessageContent({ content }: CoachMessageContentProps) {
 
           flushList(lineIdx);
           blocks.push(
-            <p key={`p-${segIdx}-${lineIdx}`} className="text-slate-700 dark:text-slate-200">
+            <p key={`p-${segIdx}-${lineIdx}`} className="text-main">
               {renderInline(trimmed)}
             </p>
           );

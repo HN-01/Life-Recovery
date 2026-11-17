@@ -2,7 +2,7 @@
   "entities": {
     "UserProfileDoc": {
       "title": "User Profile and Scheduling Preferences",
-      "description": "Private authenticated user profile, wake/sleep anchors, fixed commitments, and smart scheduling preferences.",
+      "description": "Private authenticated user profile, wake/sleep anchors, fixed commitments, personalized timetable config, and smart notification preferences.",
       "type": "object",
       "properties": {
         "uid": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
@@ -17,6 +17,13 @@
         "prayerTimes": { "type": "object" },
         "schedulingPreferences": { "type": "object" },
         "dashboardPreferences": { "type": "object" },
+        "notificationPreferences": { "type": "object" },
+        "basicSchedule": { "type": "object" },
+        "personalActivities": { "type": "array" },
+        "goalTargets": { "type": "array" },
+        "weeklyTimetable": { "type": "object" },
+        "onboardingDraft": { "type": "object" },
+        "onboardingSkipped": { "type": "boolean" },
         "onboardingCompleted": { "type": "boolean" },
         "updatedAt": { "type": "string", "maxLength": 40 }
       },
@@ -137,12 +144,67 @@
         "updatedAt": { "type": "string", "maxLength": 40 }
       },
       "required": ["uid", "id", "title", "messages", "createdAt", "updatedAt"]
+    },
+    "NotificationDoc": {
+      "title": "Smart Timetable Notification",
+      "description": "Deduplicated user-scoped smart notification for upcoming/starting/missed tasks, deadlines, and summaries.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "id": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "dedupeKey": { "type": "string", "maxLength": 240 },
+        "type": {
+          "type": "string",
+          "enum": [
+            "upcoming_activity",
+            "activity_starting",
+            "missed_activity",
+            "upcoming_deadline",
+            "daily_routine_reminder",
+            "daily_summary",
+            "weekly_summary"
+          ]
+        },
+        "title": { "type": "string", "maxLength": 240 },
+        "body": { "type": "string", "maxLength": 1000 },
+        "createdAt": { "type": "string", "maxLength": 40 },
+        "scheduledFor": { "type": "string", "maxLength": 40 },
+        "dateStr": { "type": "string", "maxLength": 20 },
+        "taskId": { "type": "string", "maxLength": 128 },
+        "taskTitle": { "type": "string", "maxLength": 240 },
+        "taskStartTime": { "type": "string", "maxLength": 16 },
+        "taskEndTime": { "type": "string", "maxLength": 16 },
+        "goalId": { "type": "string", "maxLength": 128 },
+        "read": { "type": "boolean" },
+        "dismissed": { "type": "boolean" },
+        "snoozedUntil": { "type": "string", "maxLength": 40 },
+        "deliveredChannels": { "type": "array" },
+        "targetSection": { "type": "string", "maxLength": 40 },
+        "updatedAt": { "type": "string", "maxLength": 40 }
+      },
+      "required": ["uid", "id", "dedupeKey", "type", "title", "body", "createdAt", "dateStr", "read", "deliveredChannels", "targetSection", "updatedAt"]
+    },
+    "PushSubscriptionDoc": {
+      "title": "Web Push Subscription",
+      "description": "Browser Web Push API subscription keys and endpoint scoped strictly to the authenticated user.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "id": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "endpoint": { "type": "string", "maxLength": 2000 },
+        "keys": { "type": "object" },
+        "userAgent": { "type": "string", "maxLength": 300 },
+        "timezone": { "type": "string", "maxLength": 80 },
+        "createdAt": { "type": "string", "maxLength": 40 },
+        "updatedAt": { "type": "string", "maxLength": 40 }
+      },
+      "required": ["uid", "id", "endpoint", "keys", "createdAt", "updatedAt"]
     }
   },
   "firestore": {
     "/users/{userId}/private/profile": {
       "schema": { "$ref": "#/entities/UserProfileDoc" },
-      "description": "Stores private profile, wake/sleep times, fixed commitments, prayer times, and scheduling preferences for the authenticated user."
+      "description": "Stores private profile, wake/sleep times, fixed commitments, personalized timetable configuration, and notification preferences."
     },
     "/users/{userId}/days/{dayDate}": {
       "schema": { "$ref": "#/entities/DayPlanDoc" },
@@ -171,6 +233,14 @@
     "/users/{userId}/coachConversations/{conversationId}": {
       "schema": { "$ref": "#/entities/CoachConversationDoc" },
       "description": "Stores user's AI Life Coach conversation history."
+    },
+    "/users/{userId}/notifications/{notificationId}": {
+      "schema": { "$ref": "#/entities/NotificationDoc" },
+      "description": "Stores smart timetable notifications with read/dismiss/snooze state and dedupeKey."
+    },
+    "/users/{userId}/pushSubscriptions/{subId}": {
+      "schema": { "$ref": "#/entities/PushSubscriptionDoc" },
+      "description": "Stores Web Push device subscriptions for the authenticated user."
     }
   }
 }

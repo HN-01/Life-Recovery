@@ -1,9 +1,13 @@
 import {
   AppState,
+  BasicScheduleConfig,
   DayPlan,
   Goal,
+  GoalTimeTarget,
   Habit,
   LifeArea,
+  NotificationPreferences,
+  PersonalActivityInput,
   PrayerTimes,
   Project,
   RoutineTask,
@@ -14,6 +18,7 @@ import {
   TemplateTask,
   UserProfile,
   WeeklyReview,
+  WeeklyTimetable,
 } from '../types';
 
 export const DEFAULT_PRAYER_TIMES: PrayerTimes = {
@@ -30,6 +35,42 @@ export const DEFAULT_SCHEDULING_PREFERENCES: SchedulingPreferences = {
   includeBufferMinutes: 15,
   protectPrayerWindows: true,
 };
+
+export function getDefaultNotificationPreferences(
+  wakeTime = '06:30',
+  sleepTime = '22:30',
+  timezone?: string
+): NotificationPreferences {
+  const detectedTz =
+    timezone ||
+    (typeof Intl !== 'undefined'
+      ? Intl.DateTimeFormat().resolvedOptions().timeZone || 'Asia/Karachi'
+      : 'Asia/Karachi');
+  return {
+    enabled: true,
+    browserNotificationsEnabled: false,
+    webPushEnabled: false,
+    timezone: detectedTz,
+    defaultTimings: [10, 0],
+    activityTimingOverrides: {},
+    quietHoursEnabled: true,
+    quietHoursStart: sleepTime || '22:30',
+    quietHoursEnd: wakeTime || '06:30',
+    respectSleepSchedule: true,
+    dailyRoutineReminderTime: wakeTime || '06:30',
+    dailySummaryTime: '21:00',
+    enabledTypes: {
+      upcoming_activity: true,
+      activity_starting: true,
+      missed_activity: true,
+      upcoming_deadline: true,
+      daily_routine_reminder: true,
+      daily_summary: true,
+      weekly_summary: true,
+    },
+  };
+}
+
 import { addDaysToDateStr, getDayOfWeekFromDateStr, getKarachiNow, sortTasksChronologically } from '../utils/dateUtils';
 
 export const ALL_CATEGORIES: TaskCategory[] = [
@@ -57,9 +98,12 @@ export const PRODUCTIVE_CATEGORIES: Set<TaskCategory> = new Set([
   'Exercise',
   'Haircare and skincare',
   'Prayer and spirituality',
+  'Family',
   'Entrepreneurship',
   'Creative projects',
+  'Rest and entertainment',
   'Morning & Personal Care',
+  'Meals & Nutrition',
 ]);
 
 export const LIFE_AREAS: LifeArea[] = [
@@ -578,7 +622,12 @@ export function instantiateTasksFromTemplate(
   }));
 
   const commitmentTasks: RoutineTask[] = fixedCommitments
-    .filter((c) => c.daysOfWeek.includes(dow))
+    .filter((c) => {
+      if (c.recurrence === 'one_time') {
+        return c.oneTimeDate === dayDate;
+      }
+      return c.daysOfWeek.includes(dow);
+    })
     .map((c) => ({
       id: createId('commit'),
       templateKey: `commitment_${c.id}`,
@@ -587,7 +636,9 @@ export function instantiateTasksFromTemplate(
       endTime: c.endTime,
       category: c.category,
       priority: 'Critical',
-      description: 'Fixed weekly commitment from profile setup.',
+      description: [c.description, c.location ? `Location: ${c.location}` : '']
+        .filter(Boolean)
+        .join(' · ') || 'Fixed commitment from schedule setup.',
       status: 'pending',
       isFixedCommitment: true,
     }));
@@ -607,26 +658,31 @@ export function instantiateTasksFromTemplate(
 export function build30DaysSchedule(
   startDate: string,
   templates: RoutineTemplates,
-  fixedCommitments: UserProfile['fixedCommitments'] = []
+  fixedCommitments: UserProfile['fixedCommitments'] = [],
+  weeklyTimetable?: WeeklyTimetable
 ): Record<string, DayPlan> {
   const days: Record<string, DayPlan> = {};
 
   for (let i = 0; i < 30; i++) {
     const date = addDaysToDateStr(startDate, i);
     const dow = getDayOfWeekFromDateStr(date);
-    let scheduleType: ScheduleType = 'university';
+    let scheduleType: ScheduleType = 'normal';
     if (dow === 0 || dow === 6) {
       scheduleType = 'weekend';
-    } else if (dow === 5) {
-      scheduleType = 'normal';
+    } else if (!weeklyTimetable && dow >= 1 && dow <= 4) {
+      scheduleType = 'university';
     }
 
-    const template = templates[scheduleType] || templates.normal;
+    const dayTemplate =
+      weeklyTimetable && Array.isArray(weeklyTimetable[dow])
+        ? weeklyTimetable[dow]
+        : templates[scheduleType] || templates.normal;
+
     days[date] = {
       dayNumber: i + 1,
       date,
       scheduleType,
-      tasks: instantiateTasksFromTemplate(template, date, fixedCommitments),
+      tasks: instantiateTasksFromTemplate(dayTemplate, date, fixedCommitments),
     };
   }
 
@@ -809,23 +865,38 @@ export function createInitialAppState(options?: {
   fixedCommitments?: UserProfile['fixedCommitments'];
   primaryGoalAreas?: LifeArea[];
   onboardingCompleted?: boolean;
+  onboardingSkipped?: boolean;
   customNormalTemplate?: TemplateTask[];
+  weeklyTimetable?: WeeklyTimetable;
+  blankSetup?: boolean;
+  seedSampleHistory?: boolean;
 }): AppState {
   const now = getKarachiNow();
-  // Default startDate 2 days before today so user immediately sees Day 3 of 30 with realistic history + active today!
-  const defaultStart = options?.startDate ?? addDaysToDateStr(now.dateStr, -2);
-  const templates: RoutineTemplates = JSON.parse(JSON.stringify(DEFAULT_TEMPLATES));
-  if (options?.customNormalTemplate && options.customNormalTemplate.length > 0) {
+  const isCleanBlank = Boolean(options?.blankSetup || options?.onboardingSkipped);
+  const defaultStart = options?.startDate ?? now.dateStr;
+
+  const emptyTemplates: RoutineTemplates = {
+    normal: [],
+    university: [],
+    weekend: [],
+    holiday: [],
+    exam: [],
+  };
+
+  const templates: RoutineTemplates = isCleanBlank
+    ? emptyTemplates
+    : JSON.parse(JSON.stringify(DEFAULT_TEMPLATES));
+
+  if (!isCleanBlank && options?.customNormalTemplate && options.customNormalTemplate.length > 0) {
     templates.normal = options.customNormalTemplate;
   }
 
-  // Adjust wake/sleep times in templates if custom provided
-  if (options?.wakeTime) {
+  if (!isCleanBlank && options?.wakeTime) {
     Object.values(templates).forEach((tpl) => {
       if (tpl[0]) tpl[0].startTime = options.wakeTime!;
     });
   }
-  if (options?.sleepTime) {
+  if (!isCleanBlank && options?.sleepTime) {
     Object.values(templates).forEach((tpl) => {
       const last = tpl[tpl.length - 1];
       if (last && last.title.toLowerCase().includes('sleep')) {
@@ -835,46 +906,120 @@ export function createInitialAppState(options?: {
   }
 
   const fixedCommitments = options?.fixedCommitments ?? [];
-  const days = build30DaysSchedule(defaultStart, templates, fixedCommitments);
+  const days = build30DaysSchedule(
+    defaultStart,
+    templates,
+    fixedCommitments,
+    options?.weeklyTimetable
+  );
 
-  // Seed realistic completion history ONLY for days strictly before today in default starter mode
-  Object.values(days).forEach((day) => {
-    if (day.date < now.dateStr) {
-      day.tasks = day.tasks.map((task, idx) => {
-        // Complete ~75% of tasks on historical days so analytics and trends are immediately meaningful
-        const status = idx % 5 === 4 ? 'missed' : 'completed';
-        return { ...task, status };
-      });
-    } else if (day.date === now.dateStr) {
-      // On today, mark early morning tasks already past current Karachi time as completed if early, else leave pending
-      day.tasks = day.tasks.map((task) => {
-        if (task.endTime <= '08:00' && now.timeStr > '08:00') {
-          return { ...task, status: 'completed' };
-        }
-        return task;
-      });
-    }
-  });
+  if (options?.seedSampleHistory) {
+    Object.values(days).forEach((day) => {
+      if (day.date < now.dateStr) {
+        day.tasks = day.tasks.map((task, idx) => ({
+          ...task,
+          status: idx % 5 === 4 ? 'missed' : 'completed',
+        }));
+      }
+    });
+  }
+
+  const wake = options?.wakeTime || '07:00';
+  const sleep = options?.sleepTime || '23:00';
 
   return {
     version: 1,
     profile: {
-      name: options?.name?.trim() || 'Student Builder',
+      name: options?.name?.trim() || 'Builder',
       startDate: defaultStart,
-      wakeTime: options?.wakeTime || '05:30',
-      sleepTime: options?.sleepTime || '22:30',
+      wakeTime: wake,
+      sleepTime: sleep,
       fixedCommitments,
-      primaryGoalAreas: options?.primaryGoalAreas ?? [...LIFE_AREAS],
+      primaryGoalAreas: options?.primaryGoalAreas ?? [],
       prayerTimes: { ...DEFAULT_PRAYER_TIMES },
       schedulingPreferences: { ...DEFAULT_SCHEDULING_PREFERENCES },
+      notificationPreferences: getDefaultNotificationPreferences(wake, sleep),
+      weeklyTimetable: options?.weeklyTimetable,
+      onboardingSkipped: Boolean(options?.onboardingSkipped),
       onboardingCompleted: options?.onboardingCompleted ?? false,
     },
     days,
     templates,
-    habits: createStarterHabits(now.dateStr),
-    goals: createStarterGoals(defaultStart),
-    projects: createStarterProjects(defaultStart),
+    habits: isCleanBlank ? [] : [],
+    goals: isCleanBlank ? [] : [],
+    projects: [],
     weeklyReviews: createStarterWeeklyReviews(defaultStart),
     coachConversations: [],
+    notifications: [],
+    pushSubscriptions: [],
+  };
+}
+
+export function createPersonalizedAppState(config: {
+  name: string;
+  startDate: string;
+  basicSchedule: BasicScheduleConfig;
+  fixedCommitments: UserProfile['fixedCommitments'];
+  personalActivities: PersonalActivityInput[];
+  goalTargets: GoalTimeTarget[];
+  weeklyTimetable: WeeklyTimetable;
+  habits: Habit[];
+  goals: Goal[];
+}): AppState {
+  const templates: RoutineTemplates = {
+    normal: config.weeklyTimetable[1] || config.weeklyTimetable[0] || [],
+    university: config.weeklyTimetable[1] || config.weeklyTimetable[2] || [],
+    weekend: config.weeklyTimetable[6] || config.weeklyTimetable[0] || [],
+    holiday: config.weeklyTimetable[0] || [],
+    exam: config.weeklyTimetable[1] || [],
+  };
+
+  const days = build30DaysSchedule(
+    config.startDate,
+    templates,
+    config.fixedCommitments,
+    config.weeklyTimetable
+  );
+
+  const primaryGoalAreas = Array.from(
+    new Set(config.goalTargets.map((g) => g.area))
+  );
+
+  return {
+    version: 1,
+    profile: {
+      name: config.name.trim() || 'Builder',
+      startDate: config.startDate,
+      wakeTime: config.basicSchedule.wakeTime,
+      sleepTime: config.basicSchedule.bedTime,
+      fixedCommitments: config.fixedCommitments,
+      primaryGoalAreas: primaryGoalAreas.length > 0 ? primaryGoalAreas : [...LIFE_AREAS],
+      prayerTimes: { ...DEFAULT_PRAYER_TIMES },
+      schedulingPreferences: {
+        energyPreference: 'morning_peak',
+        maxProductiveHoursPerDay: config.basicSchedule.maxDailyFocusHours,
+        includeBufferMinutes: config.basicSchedule.breakDurationMinutes,
+        protectPrayerWindows: false,
+      },
+      notificationPreferences: getDefaultNotificationPreferences(
+        config.basicSchedule.wakeTime,
+        config.basicSchedule.bedTime
+      ),
+      basicSchedule: config.basicSchedule,
+      personalActivities: config.personalActivities,
+      goalTargets: config.goalTargets,
+      weeklyTimetable: config.weeklyTimetable,
+      onboardingCompleted: true,
+      onboardingSkipped: false,
+    },
+    days,
+    templates,
+    habits: config.habits,
+    goals: config.goals,
+    projects: [],
+    weeklyReviews: createStarterWeeklyReviews(config.startDate),
+    coachConversations: [],
+    notifications: [],
+    pushSubscriptions: [],
   };
 }

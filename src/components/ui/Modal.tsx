@@ -31,27 +31,27 @@ export function Modal({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/45 dark:bg-black/70 backdrop-blur-xs p-4"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-[var(--overlay-backdrop)] backdrop-blur-xs p-4"
       role="dialog"
       aria-modal="true"
       aria-labelledby="modal-title"
     >
       <div
-        className={`w-full ${maxWidthClass} bg-white dark:bg-[#111216] border border-slate-200 dark:border-white/10 rounded-xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]`}
+        className={`w-full ${maxWidthClass} bg-card border border-subtle rounded-xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]`}
       >
-        <div className="flex items-start justify-between gap-4 px-6 py-4 border-b border-slate-200 dark:border-white/8">
+        <div className="flex items-start justify-between gap-4 px-6 py-4 border-b border-subtle">
           <div>
-            <h2 id="modal-title" className="text-lg font-semibold text-slate-900 dark:text-slate-100">
+            <h2 id="modal-title" className="text-lg font-semibold text-main">
               {title}
             </h2>
             {subtitle && (
-              <p className="text-sm text-slate-500 dark:text-slate-400 mt-0.5">{subtitle}</p>
+              <p className="text-sm text-muted mt-0.5">{subtitle}</p>
             )}
           </div>
           <button
             type="button"
             onClick={onClose}
-            className="p-2 text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100 hover:bg-slate-100 dark:hover:bg-white/5 rounded-lg transition-colors"
+            className="p-2 text-muted hover:text-main hover:bg-surface rounded-lg transition-colors"
             aria-label="Close modal"
           >
             <X className="w-4 h-4" />

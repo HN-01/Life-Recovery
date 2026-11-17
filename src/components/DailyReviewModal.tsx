@@ -46,7 +46,7 @@ export function DailyReviewModal({ open, onClose, day, onSave }: DailyReviewModa
     >
       <form onSubmit={handleSubmit} className="space-y-4">
         <div>
-          <label className="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-2">
+          <label className="block text-xs font-medium text-muted mb-2">
             Execution State Today
           </label>
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
@@ -57,8 +57,8 @@ export function DailyReviewModal({ open, onClose, day, onSave }: DailyReviewModa
                 onClick={() => setMood(m)}
                 className={`px-3 py-2 text-xs font-medium rounded-lg border transition-colors whitespace-nowrap ${
                   mood === m
-                    ? 'bg-amber-500/15 border-amber-500/50 text-amber-800 dark:text-amber-300'
-                    : 'bg-slate-50 dark:bg-[#0A0A0C] border-slate-200 dark:border-white/10 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
+                    ? 'bg-gold-soft border-gold-border text-gold'
+                    : 'bg-surface border-subtle text-muted hover:text-main'
                 }`}
               >
                 {m}
@@ -68,7 +68,7 @@ export function DailyReviewModal({ open, onClose, day, onSave }: DailyReviewModa
         </div>
 
         <div>
-          <label className="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1.5">
+          <label className="block text-xs font-medium text-muted mb-1.5">
             Key Wins &amp; Completed Focus
           </label>
           <textarea
@@ -76,12 +76,12 @@ export function DailyReviewModal({ open, onClose, day, onSave }: DailyReviewModa
             value={wins}
             onChange={(e) => setWins(e.target.value)}
             placeholder="What did you execute cleanly today?"
-            className="w-full px-3.5 py-2.5 bg-slate-50 dark:bg-[#0A0A0C] border border-slate-200 dark:border-white/10 rounded-lg text-sm text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:outline-none focus:border-amber-500 resize-none"
+            className="w-full px-3.5 py-2.5 bg-surface border border-subtle rounded-lg text-sm text-main placeholder:text-muted/70 focus:outline-none focus:border-gold resize-none"
           />
         </div>
 
         <div>
-          <label className="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1.5">
+          <label className="block text-xs font-medium text-muted mb-1.5">
             Lessons &amp; Tomorrow&apos;s Adjustment
           </label>
           <textarea
@@ -89,21 +89,21 @@ export function DailyReviewModal({ open, onClose, day, onSave }: DailyReviewModa
             value={reflection}
             onChange={(e) => setReflection(e.target.value)}
             placeholder="What caused friction, and how will tomorrow run smoother?"
-            className="w-full px-3.5 py-2.5 bg-slate-50 dark:bg-[#0A0A0C] border border-slate-200 dark:border-white/10 rounded-lg text-sm text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:outline-none focus:border-amber-500 resize-none"
+            className="w-full px-3.5 py-2.5 bg-surface border border-subtle rounded-lg text-sm text-main placeholder:text-muted/70 focus:outline-none focus:border-gold resize-none"
           />
         </div>
 
-        <div className="flex items-center justify-end gap-3 pt-3 border-t border-slate-200 dark:border-white/8">
+        <div className="flex items-center justify-end gap-3 pt-3 border-t border-subtle">
           <button
             type="button"
             onClick={onClose}
-            className="px-4 py-2 text-sm font-medium text-slate-700 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white bg-slate-100 dark:bg-white/5 hover:bg-slate-200/70 dark:hover:bg-white/10 rounded-lg transition-colors"
+            className="px-4 py-2 text-sm font-medium text-main bg-surface hover:border-gold-border border border-subtle rounded-lg transition-colors"
           >
             Cancel
           </button>
           <button
             type="submit"
-            className="px-5 py-2 text-sm font-semibold text-slate-950 bg-amber-500 hover:bg-amber-400 rounded-lg transition-colors"
+            className="px-5 py-2 text-sm font-semibold text-on-gold bg-gold hover:bg-gold-hover rounded-lg transition-colors"
           >
             Save Daily Review
           </button>

@@ -165,24 +165,24 @@ export function AuthGate() {
   };
 
   return (
-    <div className="min-h-screen bg-[#F6F7F9] dark:bg-[#0A0A0C] text-slate-900 dark:text-[#F1F5F9] flex flex-col items-center justify-center p-4 sm:p-6 relative">
+    <div className="min-h-screen bg-app text-main flex flex-col items-center justify-center p-4 sm:p-6 relative">
       <div className="absolute top-4 right-4 sm:top-6 sm:right-6">
         <ThemeToggle variant="dropdown" />
       </div>
 
-      <div className="w-full max-w-md bg-white dark:bg-[#111216] border border-slate-200 dark:border-white/10 rounded-xl shadow-xl dark:shadow-2xl overflow-hidden">
-        <div className="px-6 sm:px-8 pt-8 pb-6 border-b border-slate-200 dark:border-white/8">
-          <p className="text-xs font-semibold text-amber-700 dark:text-amber-400 tracking-wide">
+      <div className="w-full max-w-md bg-card border border-subtle rounded-xl shadow-xl dark:shadow-2xl overflow-hidden">
+        <div className="px-6 sm:px-8 pt-8 pb-6 border-b border-subtle">
+          <p className="text-xs font-semibold text-gold tracking-wide">
             PROJECT REBUILD ME
           </p>
-          <h1 className="text-2xl font-semibold text-slate-900 dark:text-white mt-1.5">
+          <h1 className="text-2xl font-semibold text-main mt-1.5">
             {mode === 'login'
               ? 'Sign in to your execution dashboard'
               : mode === 'register'
               ? 'Create your execution account'
               : 'Reset your password'}
           </h1>
-          <p className="text-xs text-slate-500 dark:text-slate-400 mt-1.5">
+          <p className="text-xs text-muted mt-1.5">
             Plan your days. Build your discipline. Sync securely across devices.
           </p>
         </div>
@@ -193,7 +193,7 @@ export function AuthGate() {
             type="button"
             disabled={loading}
             onClick={handleGoogleSignIn}
-            className="w-full flex items-center justify-center gap-2.5 px-4 py-2.5 bg-white text-slate-900 border border-slate-300 dark:border-transparent hover:bg-slate-50 dark:hover:bg-slate-100 disabled:opacity-50 rounded-lg text-sm font-medium transition-colors shadow-xs dark:shadow-none"
+            className="w-full flex items-center justify-center gap-2.5 px-4 py-2.5 bg-surface hover:border-gold-border text-main border border-subtle disabled:opacity-50 rounded-lg text-sm font-medium transition-colors"
           >
             <svg className="w-4 h-4 shrink-0" viewBox="0 0 24 24" aria-hidden="true">
               <path
@@ -217,9 +217,9 @@ export function AuthGate() {
           </button>
 
           <div className="relative flex items-center py-1">
-            <div className="flex-grow border-t border-slate-200 dark:border-white/10" />
-            <span className="shrink mx-3 text-xs text-slate-500">or with email</span>
-            <div className="flex-grow border-t border-slate-200 dark:border-white/10" />
+            <div className="flex-grow border-t border-subtle" />
+            <span className="shrink mx-3 text-xs text-muted">or with email</span>
+            <div className="flex-grow border-t border-subtle" />
           </div>
 
           <form onSubmit={handleSubmit} noValidate className="space-y-4">
@@ -227,12 +227,12 @@ export function AuthGate() {
               <div>
                 <label
                   htmlFor="auth-fullname"
-                  className="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1.5"
+                  className="block text-xs font-medium text-muted mb-1.5"
                 >
                   Full Name
                 </label>
                 <div className="relative">
-                  <UserIcon className="w-4 h-4 text-slate-400 dark:text-slate-500 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+                  <UserIcon className="w-4 h-4 text-muted absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
                   <input
                     id="auth-fullname"
                     type="text"
@@ -240,7 +240,7 @@ export function AuthGate() {
                     value={name}
                     onChange={(e) => setName(e.target.value)}
                     placeholder="Haseeb Nawaz"
-                    className="w-full pl-9 pr-3.5 py-2.5 bg-slate-50 dark:bg-[#0A0A0C] border border-slate-200 dark:border-white/10 rounded-lg text-sm text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:outline-none focus:border-amber-500"
+                    className="w-full pl-9 pr-3.5 py-2.5 bg-surface border border-subtle rounded-lg text-sm text-main placeholder:text-muted/70 focus:outline-none focus:border-gold"
                   />
                 </div>
               </div>
@@ -249,12 +249,12 @@ export function AuthGate() {
             <div>
               <label
                 htmlFor="auth-email"
-                className="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1.5"
+                className="block text-xs font-medium text-muted mb-1.5"
               >
                 Email Address
               </label>
               <div className="relative">
-                <Mail className="w-4 h-4 text-slate-400 dark:text-slate-500 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+                <Mail className="w-4 h-4 text-muted absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
                 <input
                   id="auth-email"
                   type="email"
@@ -262,7 +262,7 @@ export function AuthGate() {
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   placeholder="you@university.edu"
-                  className="w-full pl-9 pr-3.5 py-2.5 bg-slate-50 dark:bg-[#0A0A0C] border border-slate-200 dark:border-white/10 rounded-lg text-sm text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:outline-none focus:border-amber-500"
+                  className="w-full pl-9 pr-3.5 py-2.5 bg-surface border border-subtle rounded-lg text-sm text-main placeholder:text-muted/70 focus:outline-none focus:border-gold"
                 />
               </div>
             </div>
@@ -271,12 +271,12 @@ export function AuthGate() {
               <div>
                 <label
                   htmlFor="auth-password"
-                  className="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1.5"
+                  className="block text-xs font-medium text-muted mb-1.5"
                 >
                   Password
                 </label>
                 <div className="relative">
-                  <Lock className="w-4 h-4 text-slate-400 dark:text-slate-500 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+                  <Lock className="w-4 h-4 text-muted absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
                   <input
                     id="auth-password"
                     type={showPassword ? 'text' : 'password'}
@@ -284,7 +284,7 @@ export function AuthGate() {
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
                     placeholder={mode === 'register' ? 'At least 6 characters' : '••••••••'}
-                    className="w-full pl-9 pr-11 py-2.5 bg-slate-50 dark:bg-[#0A0A0C] border border-slate-200 dark:border-white/10 rounded-lg text-sm text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:outline-none focus:border-amber-500"
+                    className="w-full pl-9 pr-11 py-2.5 bg-surface border border-subtle rounded-lg text-sm text-main placeholder:text-muted/70 focus:outline-none focus:border-gold"
                   />
                   <button
                     type="button"
@@ -292,7 +292,7 @@ export function AuthGate() {
                     aria-label={showPassword ? 'Hide password' : 'Show password'}
                     aria-pressed={showPassword}
                     title={showPassword ? 'Hide password' : 'Show password'}
-                    className="absolute right-1.5 top-1/2 -translate-y-1/2 p-2 text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-500 rounded-md transition-colors"
+                    className="absolute right-1.5 top-1/2 -translate-y-1/2 p-2 text-muted hover:text-main focus:outline-none focus-visible:ring-2 focus-visible:ring-gold rounded-md transition-colors"
                   >
                     {showPassword ? (
                       <EyeOff className="w-4 h-4" />
@@ -308,12 +308,12 @@ export function AuthGate() {
               <div>
                 <label
                   htmlFor="auth-confirm-password"
-                  className="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1.5"
+                  className="block text-xs font-medium text-muted mb-1.5"
                 >
                   Confirm Password
                 </label>
                 <div className="relative">
-                  <Lock className="w-4 h-4 text-slate-400 dark:text-slate-500 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+                  <Lock className="w-4 h-4 text-muted absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
                   <input
                     id="auth-confirm-password"
                     type={showConfirmPassword ? 'text' : 'password'}
@@ -321,7 +321,7 @@ export function AuthGate() {
                     value={confirmPassword}
                     onChange={(e) => setConfirmPassword(e.target.value)}
                     placeholder="Re-enter your password"
-                    className="w-full pl-9 pr-11 py-2.5 bg-slate-50 dark:bg-[#0A0A0C] border border-slate-200 dark:border-white/10 rounded-lg text-sm text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:outline-none focus:border-amber-500"
+                    className="w-full pl-9 pr-11 py-2.5 bg-surface border border-subtle rounded-lg text-sm text-main placeholder:text-muted/70 focus:outline-none focus:border-gold"
                   />
                   <button
                     type="button"
@@ -333,7 +333,7 @@ export function AuthGate() {
                     title={
                       showConfirmPassword ? 'Hide confirm password' : 'Show confirm password'
                     }
-                    className="absolute right-1.5 top-1/2 -translate-y-1/2 p-2 text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-500 rounded-md transition-colors"
+                    className="absolute right-1.5 top-1/2 -translate-y-1/2 p-2 text-muted hover:text-main focus:outline-none focus-visible:ring-2 focus-visible:ring-gold rounded-md transition-colors"
                   >
                     {showConfirmPassword ? (
                       <EyeOff className="w-4 h-4" />
@@ -348,7 +348,7 @@ export function AuthGate() {
             {error && (
               <p
                 role="alert"
-                className="text-xs text-rose-700 dark:text-rose-400 leading-relaxed bg-rose-50 dark:bg-rose-500/10 border border-rose-200 dark:border-rose-500/20 rounded-lg p-3"
+                className="text-xs text-rose-muted leading-relaxed bg-rose-soft border border-rose-border rounded-lg p-3"
               >
                 {error}
               </p>
@@ -356,7 +356,7 @@ export function AuthGate() {
             {notice && (
               <p
                 role="status"
-                className="text-xs text-emerald-700 dark:text-emerald-400 leading-relaxed bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/20 rounded-lg p-3"
+                className="text-xs text-slate-accent leading-relaxed bg-slate-soft border border-slate-border rounded-lg p-3"
               >
                 {notice}
               </p>
@@ -365,7 +365,7 @@ export function AuthGate() {
             <button
               type="submit"
               disabled={loading}
-              className="w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-semibold text-slate-950 bg-amber-500 hover:bg-amber-400 disabled:opacity-50 rounded-lg transition-colors"
+              className="w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-semibold text-on-gold bg-gold hover:bg-gold-hover disabled:opacity-50 rounded-lg transition-colors"
             >
               {mode === 'login' && (loading ? 'Signing In...' : 'Sign In')}
               {mode === 'register' && (loading ? 'Creating Account...' : 'Create Account')}
@@ -379,20 +379,20 @@ export function AuthGate() {
             </button>
           </form>
 
-          <div className="pt-2 border-t border-slate-200 dark:border-white/8 flex flex-wrap items-center justify-between gap-2 text-xs text-slate-500 dark:text-slate-400">
+          <div className="pt-2 border-t border-subtle flex flex-wrap items-center justify-between gap-2 text-xs text-muted">
             {mode === 'login' ? (
               <>
                 <button
                   type="button"
                   onClick={() => switchMode('register')}
-                  className="hover:text-slate-900 dark:hover:text-white transition-colors"
+                  className="hover:text-main transition-colors"
                 >
                   Create new account
                 </button>
                 <button
                   type="button"
                   onClick={() => switchMode('reset')}
-                  className="hover:text-slate-900 dark:hover:text-white transition-colors"
+                  className="hover:text-main transition-colors"
                 >
                   Forgot password?
                 </button>
@@ -401,7 +401,7 @@ export function AuthGate() {
               <button
                 type="button"
                 onClick={() => switchMode('login')}
-                className="hover:text-slate-900 dark:hover:text-white transition-colors"
+                className="hover:text-main transition-colors"
               >
                 Back to Sign In
               </button>

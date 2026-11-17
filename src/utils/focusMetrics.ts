@@ -16,10 +16,12 @@ import {
 import { computeBestActiveHabitStreak, computeDayStats } from './metrics';
 
 export const DEFAULT_WIDGET_ORDER: DashboardWidgetId[] = [
-  'metrics',
+  'daily_progress',
   'timeline',
+  'insights',
   'ai_coach',
   'priorities',
+  'metrics',
   'progress',
   'quick_actions',
 ];
@@ -30,14 +32,19 @@ export const WIDGET_CATALOG: Array<{
   description: string;
 }> = [
   {
-    id: 'metrics',
-    title: 'Focus & Attention Metrics',
-    description: 'Deep Work Time, Attention Quality, and Focus Stability across time windows.',
+    id: 'daily_progress',
+    title: 'Daily Execution Progress',
+    description: 'Scheduled tasks, completion rate, habits completed, and progressing goals.',
   },
   {
     id: 'timeline',
     title: 'Daily Timeline (8 AM – 8 PM)',
     description: 'Interactive horizontal block view of scheduled routines with priority coding.',
+  },
+  {
+    id: 'insights',
+    title: 'Progress Insights & Trends',
+    description: 'Weekly completion trend, consistent activities, missed tasks, and goal progress.',
   },
   {
     id: 'ai_coach',
@@ -48,6 +55,11 @@ export const WIDGET_CATALOG: Array<{
     id: 'priorities',
     title: 'Today’s Top Priorities',
     description: 'Highest-priority actionable blocks ranked for focused completion.',
+  },
+  {
+    id: 'metrics',
+    title: 'Optional Deep Work Telemetry',
+    description: 'Optional focus timer, Attention Quality, and Focus Stability (separate from daily score).',
   },
   {
     id: 'progress',
@@ -584,7 +596,7 @@ export function computeCoachDailyInsight(
       .map((t) => t.title);
     const topMissed = missedTasks[0];
     return {
-      headline: `${stats.completed}/${Math.max(1, stats.total - stats.skipped)} tasks done (${stats.completionRate}%) · ${stats.missed} block${stats.missed === 1 ? '' : 's'} missed so far.`,
+      headline: `${stats.completed}/${Math.max(1, stats.total)} scheduled tasks done (${stats.completionRate}%) · ${stats.missed} block${stats.missed === 1 ? '' : 's'} missed so far.`,
       recommendation: topMissed
         ? `Prioritize recovering "${topMissed}" or let me reschedule unfinished work cleanly without cutting into sleep (${formatTime12h(state.profile.sleepTime)}).`
         : 'Review missed blocks and adjust remaining time windows cleanly.',
@@ -594,7 +606,7 @@ export function computeCoachDailyInsight(
 
   if (stats.completed > 0 && stats.completionRate >= 70) {
     return {
-      headline: `${firstName}, strong momentum: ${stats.completionRate}% complete${deepWork.totalSeconds > 0 ? ` with ${deepWork.formattedDuration} of Deep Work logged` : ''}.`,
+      headline: `${firstName}, strong momentum: ${stats.completionRate}% complete (${stats.completed}/${stats.total} scheduled tasks)${deepWork.totalSeconds > 0 ? ` · ${deepWork.formattedDuration} optional Deep Work logged` : ''}.`,
       recommendation: nextTask
         ? `Keep locking in "${nextTask.title}" at ${formatTime12h(nextTask.startTime)}. ${bestStreak > 0 ? `Your top habit streak stands at ${bestStreak} days.` : ''}`
         : 'All major blocks for this view are on track. Review tomorrow’s priorities or run a daily reflection.',
@@ -604,14 +616,14 @@ export function computeCoachDailyInsight(
 
   if (nextTask) {
     return {
-      headline: `${stats.completed}/${Math.max(1, stats.total - stats.skipped)} completed today · ${yesterdayStats.total > 0 ? `Yesterday finished at ${yesterdayStats.completionRate}%.` : 'Ready to execute.'}`,
-      recommendation: `Next priority block is "${nextTask.title}" (${formatTime12h(nextTask.startTime)} – ${formatTime12h(nextTask.endTime)}). Start the Deep Work timer to measure attention quality.`,
+      headline: `${stats.completed}/${Math.max(1, stats.total)} completed today (${stats.completionRate}%) · ${yesterdayStats.total > 0 ? `Yesterday finished at ${yesterdayStats.completionRate}%.` : 'Ready to execute.'}`,
+      recommendation: `Next priority block is "${nextTask.title}" (${formatTime12h(nextTask.startTime)} – ${formatTime12h(nextTask.endTime)}). Complete scheduled tasks or optionally start the focus timer.`,
       focusPrompt: 'Which tasks should I prioritize next and how can I protect my focus?',
     };
   }
 
   return {
-    headline: `${stats.completed}/${Math.max(1, stats.total - stats.skipped)} tasks completed (${stats.completionRate}%) on Day ${viewedDay.dayNumber}.`,
+    headline: `${stats.completed}/${Math.max(1, stats.total)} tasks completed (${stats.completionRate}%) on Day ${viewedDay.dayNumber}.`,
     recommendation:
       'Ask your AI Life Coach to analyze habit consistency, break down a goal milestone, or plan tomorrow.',
     focusPrompt: 'Analyze my recent routine performance and suggest improvements.',

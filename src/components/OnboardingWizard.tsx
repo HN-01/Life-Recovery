@@ -1,25 +1,40 @@
-import React, { useState } from 'react';
-import { ArrowRight, Check, Plus, Trash2 } from 'lucide-react';
+import React, { useMemo, useState } from 'react';
+import { ArrowRight, Check, Plus, Save, Sparkles, Trash2, X } from 'lucide-react';
 import {
   ALL_CATEGORIES,
+  build30DaysSchedule,
   createId,
-  DEFAULT_TEMPLATES,
+  createInitialAppState,
+  createPersonalizedAppState,
+  instantiateTasksFromTemplate,
   LIFE_AREAS,
 } from '../data/starterData';
-import { FixedCommitment, LifeArea, TaskCategory, TemplateTask } from '../types';
-import { getKarachiNow } from '../utils/dateUtils';
+import {
+  AppState,
+  BasicScheduleConfig,
+  FixedCommitment,
+  Goal,
+  GoalTimeTarget,
+  Habit,
+  LifeArea,
+  OnboardingDraft,
+  PersonalActivityInput,
+  PreferredTimeOfDay,
+  TaskCategory,
+  TaskPriority,
+  TemplateTask,
+  WeeklyTimetable,
+} from '../types';
+import { getDayOfWeekFromDateStr, getKarachiNow, minutesToTime, sortTasksChronologically, timeToMinutes } from '../utils/dateUtils';
+import { TimetableEditor } from './TimetableEditor';
 
 interface OnboardingWizardProps {
-  onComplete: (config: {
-    name: string;
-    startDate: string;
-    wakeTime: string;
-    sleepTime: string;
-    fixedCommitments: FixedCommitment[];
-    primaryGoalAreas: LifeArea[];
-    customNormalTemplate: TemplateTask[];
-  }) => void;
+  initialState?: AppState;
+  mode?: 'onboarding' | 'builder';
+  onSaveDraft?: (draft: OnboardingDraft) => void;
+  onComplete: (result: { state: AppState }) => void;
   onSkip: () => void;
+  onClose?: () => void;
 }
 
 const WEEKDAYS = [
@@ -32,121 +47,533 @@ const WEEKDAYS = [
   { idx: 0, label: 'Sun' },
 ];
 
-export function OnboardingWizard({ onComplete, onSkip }: OnboardingWizardProps) {
+const TIME_OF_DAY_OPTIONS: Array<{ id: PreferredTimeOfDay; label: string; defaultStartMin: number }> = [
+  { id: 'early_morning', label: 'Early Morning (5–8 AM)', defaultStartMin: 360 },
+  { id: 'morning', label: 'Morning (8 AM–12 PM)', defaultStartMin: 540 },
+  { id: 'afternoon', label: 'Afternoon (12–5 PM)', defaultStartMin: 840 },
+  { id: 'evening', label: 'Evening (5–9 PM)', defaultStartMin: 1080 },
+  { id: 'night', label: 'Night (9 PM+)', defaultStartMin: 1260 },
+  { id: 'flexible', label: 'Flexible / Any Open Slot', defaultStartMin: 600 },
+];
+
+const SUGGESTED_ACTIVITIES: Array<{
+  name: string;
+  category: TaskCategory;
+  duration: number;
+  priority: TaskPriority;
+  timeOfDay: PreferredTimeOfDay;
+}> = [
+  { name: 'Exercise & Fitness', category: 'Exercise', duration: 45, priority: 'High', timeOfDay: 'evening' },
+  { name: 'Programming & Projects', category: 'Programming', duration: 90, priority: 'High', timeOfDay: 'evening' },
+  { name: 'Academic Study & Revision', category: 'University', duration: 90, priority: 'High', timeOfDay: 'afternoon' },
+  { name: 'Business Development', category: 'Entrepreneurship', duration: 60, priority: 'High', timeOfDay: 'evening' },
+  { name: 'English Communication', category: 'English communication', duration: 30, priority: 'Medium', timeOfDay: 'afternoon' },
+  { name: 'Deep Reading', category: 'Creative projects', duration: 30, priority: 'Medium', timeOfDay: 'night' },
+  { name: 'Skill Learning', category: 'Programming', duration: 60, priority: 'Medium', timeOfDay: 'flexible' },
+  { name: 'Hobbies & Creative Rest', category: 'Rest and entertainment', duration: 45, priority: 'Low', timeOfDay: 'night' },
+  { name: 'Mindfulness & Reflection', category: 'Prayer and spirituality', duration: 20, priority: 'Medium', timeOfDay: 'early_morning' },
+];
+
+function createEmptyWeeklyTimetable(): WeeklyTimetable {
+  return { 0: [], 1: [], 2: [], 3: [], 4: [], 5: [], 6: [] };
+}
+
+function generateInitialWeeklyTimetable(
+  basic: BasicScheduleConfig,
+  commitments: FixedCommitment[],
+  activities: PersonalActivityInput[]
+): WeeklyTimetable {
+  const tt = createEmptyWeeklyTimetable();
+  const wakeMin = timeToMinutes(basic.wakeTime || '07:00');
+  const bedMin = timeToMinutes(basic.bedTime || '23:00');
+  const effectiveBedMin = bedMin <= wakeMin ? 1410 : bedMin;
+  const breakDur = Math.max(0, basic.breakDurationMinutes || 15);
+
+  for (let dow = 0; dow <= 6; dow++) {
+    const blocks: TemplateTask[] = [];
+    const occupied: Array<[number, number]> = [];
+
+    // 1. Anchor fixed recurring commitments on this weekday
+    for (const c of commitments) {
+      if (c.recurrence === 'one_time') continue;
+      if (!c.daysOfWeek.includes(dow)) continue;
+      const s = timeToMinutes(c.startTime);
+      const e = timeToMinutes(c.endTime) <= s ? s + 60 : timeToMinutes(c.endTime);
+      occupied.push([s, e]);
+      blocks.push({
+        templateKey: `fc_${c.id}`,
+        title: c.title,
+        startTime: c.startTime,
+        endTime: c.endTime,
+        category: c.category,
+        priority: 'Critical',
+        description: [c.description, c.location ? `Location: ${c.location}` : '']
+          .filter(Boolean)
+          .join(' · ') || 'Fixed responsibility',
+        isFixedCommitment: true,
+      });
+    }
+
+    // 2. Place user-chosen activities into non-overlapping open slots on active days
+    const isDayActive =
+      basic.activeDaysOfWeek.length === 0 || basic.activeDaysOfWeek.includes(dow);
+
+    if (isDayActive) {
+      for (const act of activities) {
+        // Respect weeklyFrequency (spread across week deterministically)
+        const activeList =
+          basic.activeDaysOfWeek.length > 0
+            ? basic.activeDaysOfWeek
+            : [1, 2, 3, 4, 5, 6, 0];
+        const pos = activeList.indexOf(dow);
+        if (pos >= 0 && pos >= act.weeklyFrequency) continue;
+
+        const prefOpt = TIME_OF_DAY_OPTIONS.find((o) => o.id === act.preferredTimeOfDay);
+        let candidateStart = Math.max(wakeMin, prefOpt?.defaultStartMin ?? wakeMin + 60);
+        const dur = Math.max(15, act.preferredDurationMinutes || 45);
+
+        let placed = false;
+        for (let step = 0; step < 30; step++) {
+          const end = candidateStart + dur;
+          if (end > effectiveBedMin) break;
+          const overlaps = occupied.some(
+            ([os, oe]) => candidateStart < oe + breakDur && end + breakDur > os
+          );
+          if (!overlaps) {
+            occupied.push([candidateStart, end]);
+            blocks.push({
+              templateKey: `act_${act.id}`,
+              title: act.name,
+              startTime: minutesToTime(candidateStart),
+              endTime: minutesToTime(end),
+              category: act.category,
+              priority: act.priority,
+              description: act.description || 'Personalized activity block.',
+            });
+            placed = true;
+            break;
+          }
+          candidateStart += 30;
+        }
+        if (!placed && candidateStart + dur > effectiveBedMin) {
+          // Try earlier in day starting after wakeTime
+          let fallbackStart = wakeMin;
+          while (fallbackStart + dur <= effectiveBedMin) {
+            const end = fallbackStart + dur;
+            const overlaps = occupied.some(
+              ([os, oe]) => fallbackStart < oe + breakDur && end + breakDur > os
+            );
+            if (!overlaps) {
+              occupied.push([fallbackStart, end]);
+              blocks.push({
+                templateKey: `act_${act.id}`,
+                title: act.name,
+                startTime: minutesToTime(fallbackStart),
+                endTime: minutesToTime(end),
+                category: act.category,
+                priority: act.priority,
+                description: act.description || 'Personalized activity block.',
+              });
+              break;
+            }
+            fallbackStart += 30;
+          }
+        }
+      }
+    }
+
+    tt[dow] = blocks.sort(
+      (a, b) => timeToMinutes(a.startTime) - timeToMinutes(b.startTime)
+    );
+  }
+
+  return tt;
+}
+
+export function OnboardingWizard({
+  initialState,
+  mode = 'onboarding',
+  onSaveDraft,
+  onComplete,
+  onSkip,
+  onClose,
+}: OnboardingWizardProps) {
   const now = getKarachiNow();
-  const [step, setStep] = useState<1 | 2 | 3>(1);
+  const draft = initialState?.profile.onboardingDraft;
 
-  const [name, setName] = useState('Student Builder');
-  const [startDate, setStartDate] = useState(now.dateStr);
-  const [wakeTime, setWakeTime] = useState('05:30');
-  const [sleepTime, setSleepTime] = useState('22:30');
-
-  const [fixedCommitments, setFixedCommitments] = useState<FixedCommitment[]>([
-    {
-      id: createId('fc'),
-      title: 'University Morning Block',
-      startTime: '08:30',
-      endTime: '13:00',
-      daysOfWeek: [1, 2, 3, 4],
-      category: 'University',
-    },
-  ]);
-
-  const [newCommitTitle, setNewCommitTitle] = useState('');
-  const [newCommitStart, setNewCommitStart] = useState('14:00');
-  const [newCommitEnd, setNewCommitEnd] = useState('15:30');
-  const [newCommitCat, setNewCommitCat] = useState<TaskCategory>('University');
-  const [newCommitDays, setNewCommitDays] = useState<number[]>([1, 2, 3, 4, 5]);
-
-  const [primaryGoalAreas, setPrimaryGoalAreas] = useState<LifeArea[]>([...LIFE_AREAS]);
-  const [routineBlocks, setRoutineBlocks] = useState<TemplateTask[]>(() =>
-    JSON.parse(JSON.stringify(DEFAULT_TEMPLATES.normal))
+  const [step, setStep] = useState<1 | 2 | 3 | 4 | 5>(
+    mode === 'builder' ? 5 : draft?.currentStep || 1
   );
 
-  const toggleGoalArea = (area: LifeArea) => {
-    setPrimaryGoalAreas((prev) =>
-      prev.includes(area) ? prev.filter((a) => a !== area) : [...prev, area]
-    );
+  const [name, setName] = useState(
+    draft?.name || initialState?.profile.name || ''
+  );
+  const [startDate, setStartDate] = useState(
+    draft?.startDate || initialState?.profile.startDate || now.dateStr
+  );
+
+  const [basicSchedule, setBasicSchedule] = useState<BasicScheduleConfig>(() =>
+    draft?.basicSchedule ||
+    initialState?.profile.basicSchedule || {
+      wakeTime: initialState?.profile.wakeTime || '07:00',
+      bedTime: initialState?.profile.sleepTime || '23:00',
+      preferredSleepHours: 8,
+      activeDaysOfWeek: [1, 2, 3, 4, 5, 6],
+      preferredWorkStart: '09:00',
+      preferredWorkEnd: '18:00',
+      breakDurationMinutes: 15,
+      breakFrequencyMinutes: 90,
+      maxDailyFocusHours: 8,
+    }
+  );
+
+  const [commitments, setCommitments] = useState<FixedCommitment[]>(
+    () => draft?.commitments || initialState?.profile.fixedCommitments || []
+  );
+
+  // Add commitment form
+  const [cTitle, setCTitle] = useState('');
+  const [cCategory, setCCategory] = useState<TaskCategory>('University');
+  const [cStart, setCStart] = useState('09:00');
+  const [cEnd, setCEnd] = useState('12:00');
+  const [cDays, setCDays] = useState<number[]>([1, 2, 3, 4, 5]);
+  const [cRecurrence, setCRecurrence] = useState<'recurring' | 'one_time'>('recurring');
+  const [cOneTimeDate, setCOneTimeDate] = useState(now.dateStr);
+  const [cLocation, setCLocation] = useState('');
+  const [cDesc, setCDesc] = useState('');
+
+  const [activities, setActivities] = useState<PersonalActivityInput[]>(
+    () => draft?.activities || initialState?.profile.personalActivities || []
+  );
+
+  // Custom activity form
+  const [aName, setAName] = useState('');
+  const [aCategory, setACategory] = useState<TaskCategory>('Programming');
+  const [aDuration, setADuration] = useState(60);
+  const [aPriority, setAPriority] = useState<TaskPriority>('High');
+  const [aTimeOfDay, setATimeOfDay] = useState<PreferredTimeOfDay>('evening');
+  const [aFreq, setAFreq] = useState(5);
+
+  const [goalTargets, setGoalTargets] = useState<GoalTimeTarget[]>(
+    () => draft?.goalTargets || initialState?.profile.goalTargets || []
+  );
+  const [gTitle, setGTitle] = useState('');
+  const [gArea, setGArea] = useState<LifeArea>(LIFE_AREAS[2]);
+  const [gHours, setGHours] = useState(8);
+  const [gNotes, setGNotes] = useState('');
+
+  const [weeklyTimetable, setWeeklyTimetable] = useState<WeeklyTimetable>(() => {
+    if (draft?.weeklyTimetable) return draft.weeklyTimetable;
+    if (initialState?.profile.weeklyTimetable) return initialState.profile.weeklyTimetable;
+    if (mode === 'builder' && initialState) {
+      return {
+        0: initialState.templates.weekend || [],
+        1: initialState.templates.university || initialState.templates.normal || [],
+        2: initialState.templates.university || initialState.templates.normal || [],
+        3: initialState.templates.university || initialState.templates.normal || [],
+        4: initialState.templates.university || initialState.templates.normal || [],
+        5: initialState.templates.normal || [],
+        6: initialState.templates.weekend || [],
+      };
+    }
+    return createEmptyWeeklyTimetable();
+  });
+
+  const [draftSavedNotice, setDraftSavedNotice] = useState('');
+
+  const totalWeeklyPlannedHours = useMemo(() => {
+    let mins = 0;
+    for (let d = 0; d <= 6; d++) {
+      for (const b of weeklyTimetable[d] || []) {
+        if (b.isBreak) continue;
+        const s = timeToMinutes(b.startTime);
+        const e = timeToMinutes(b.endTime) <= s ? 1440 : timeToMinutes(b.endTime);
+        mins += Math.max(0, e - s);
+      }
+    }
+    return Number((mins / 60).toFixed(1));
+  }, [weeklyTimetable]);
+
+  const goToStep = (targetStep: 1 | 2 | 3 | 4 | 5) => {
+    if (targetStep === 5 && mode === 'onboarding') {
+      const hasAnyBlock = Object.values(weeklyTimetable).some((list) => list.length > 0);
+      if (!hasAnyBlock && (commitments.length > 0 || activities.length > 0)) {
+        setWeeklyTimetable(
+          generateInitialWeeklyTimetable(basicSchedule, commitments, activities)
+        );
+      }
+    }
+    setStep(targetStep);
   };
 
   const addCommitment = () => {
-    if (!newCommitTitle.trim()) return;
-    setFixedCommitments((prev) => [
+    if (!cTitle.trim()) return;
+    setCommitments((prev) => [
       ...prev,
       {
         id: createId('fc'),
-        title: newCommitTitle.trim(),
-        startTime: newCommitStart,
-        endTime: newCommitEnd,
-        daysOfWeek: newCommitDays.length > 0 ? newCommitDays : [1, 2, 3, 4, 5],
-        category: newCommitCat,
+        title: cTitle.trim(),
+        category: cCategory,
+        startTime: cStart,
+        endTime: cEnd,
+        daysOfWeek: cRecurrence === 'one_time' ? [] : cDays.length > 0 ? cDays : [1, 2, 3, 4, 5],
+        recurrence: cRecurrence,
+        oneTimeDate: cRecurrence === 'one_time' ? cOneTimeDate : undefined,
+        location: cLocation.trim() || undefined,
+        description: cDesc.trim() || undefined,
       },
     ]);
-    setNewCommitTitle('');
+    setCTitle('');
+    setCLocation('');
+    setCDesc('');
   };
 
-  const updateRoutineBlock = (idx: number, patch: Partial<TemplateTask>) => {
-    setRoutineBlocks((prev) => prev.map((b, i) => (i === idx ? { ...b, ...patch } : b)));
+  const toggleSuggestedActivity = (item: (typeof SUGGESTED_ACTIVITIES)[number]) => {
+    const exists = activities.some(
+      (a) => a.name.toLowerCase() === item.name.toLowerCase()
+    );
+    if (exists) {
+      setActivities((prev) =>
+        prev.filter((a) => a.name.toLowerCase() !== item.name.toLowerCase())
+      );
+    } else {
+      setActivities((prev) => [
+        ...prev,
+        {
+          id: createId('act'),
+          name: item.name,
+          category: item.category,
+          preferredDurationMinutes: item.duration,
+          priority: item.priority,
+          preferredTimeOfDay: item.timeOfDay,
+          weeklyFrequency: Math.min(7, Math.max(1, basicSchedule.activeDaysOfWeek.length || 5)),
+        },
+      ]);
+    }
   };
 
-  const removeRoutineBlock = (idx: number) => {
-    setRoutineBlocks((prev) => prev.filter((_, i) => i !== idx));
+  const addCustomActivity = () => {
+    if (!aName.trim()) return;
+    setActivities((prev) => [
+      ...prev,
+      {
+        id: createId('act'),
+        name: aName.trim(),
+        category: aCategory,
+        preferredDurationMinutes: aDuration,
+        priority: aPriority,
+        preferredTimeOfDay: aTimeOfDay,
+        weeklyFrequency: aFreq,
+      },
+    ]);
+    setAName('');
+  };
+
+  const addGoalTarget = () => {
+    if (!gTitle.trim()) return;
+    setGoalTargets((prev) => [
+      ...prev,
+      {
+        id: createId('gt'),
+        title: gTitle.trim(),
+        area: gArea,
+        targetHoursPerWeek: gHours,
+        notes: gNotes.trim() || undefined,
+      },
+    ]);
+    setGTitle('');
+    setGNotes('');
+  };
+
+  const handleSaveProgressLater = () => {
+    if (!onSaveDraft) return;
+    onSaveDraft({
+      currentStep: step,
+      name: name.trim() || 'Builder',
+      startDate,
+      basicSchedule,
+      commitments,
+      activities,
+      goalTargets,
+      weeklyTimetable,
+      updatedAt: new Date().toISOString(),
+    });
+    setDraftSavedNotice('Setup progress saved. You can resume anytime from the dashboard banner.');
   };
 
   const handleFinish = () => {
-    onComplete({
-      name,
+    if (mode === 'builder' && initialState) {
+      // Preserve existing user history, completed tasks, habits, goals, projects, notifications
+      const updatedDays = { ...initialState.days };
+      for (const [dStr, day] of Object.entries(updatedDays)) {
+        if (dStr >= now.dateStr) {
+          const dow = getDayOfWeekFromDateStr(dStr);
+          const dayTpl = weeklyTimetable[dow] || [];
+          const fresh = instantiateTasksFromTemplate(dayTpl, dStr, commitments);
+          const completedBySig = new Set(
+            day.tasks
+              .filter((t) => t.status === 'completed')
+              .map((t) => `${t.title.trim().toLowerCase()}::${t.startTime}`)
+          );
+          updatedDays[dStr] = {
+            ...day,
+            tasks: sortTasksChronologically(
+              fresh.map((t) =>
+                completedBySig.has(`${t.title.trim().toLowerCase()}::${t.startTime}`)
+                  ? { ...t, status: 'completed' }
+                  : t
+              )
+            ),
+          };
+        }
+      }
+
+      const updatedState: AppState = {
+        ...initialState,
+        profile: {
+          ...initialState.profile,
+          name: name.trim() || initialState.profile.name,
+          wakeTime: basicSchedule.wakeTime,
+          sleepTime: basicSchedule.bedTime,
+          fixedCommitments: commitments,
+          basicSchedule,
+          personalActivities: activities,
+          goalTargets,
+          weeklyTimetable,
+          onboardingCompleted: true,
+          onboardingSkipped: false,
+          onboardingDraft: undefined,
+        },
+        templates: {
+          ...initialState.templates,
+          normal: weeklyTimetable[5] || weeklyTimetable[1] || initialState.templates.normal,
+          university: weeklyTimetable[1] || initialState.templates.university,
+          weekend: weeklyTimetable[6] || weeklyTimetable[0] || initialState.templates.weekend,
+        },
+        days: updatedDays,
+      };
+      onComplete({ state: updatedState });
+      return;
+    }
+
+    // First-time onboarding completion: build truly personalized plan without forcing defaults
+    const habits: Habit[] = activities.slice(0, 8).map((act) => ({
+      id: createId('habit'),
+      title: act.name,
+      category: act.category,
+      frequency: act.weeklyFrequency >= 7 ? 'daily' : 'custom',
+      customDays:
+        act.weeklyFrequency >= 7
+          ? undefined
+          : (basicSchedule.activeDaysOfWeek.length > 0
+              ? basicSchedule.activeDaysOfWeek
+              : [1, 2, 3, 4, 5]
+            ).slice(0, act.weeklyFrequency),
+      targetPerWeek: act.weeklyFrequency,
+      logs: {},
+      createdAt: startDate,
+    }));
+
+    const goals: Goal[] = goalTargets.map((gt) => ({
+      id: createId('goal'),
+      area: gt.area,
+      title: gt.title,
+      description: gt.notes || `Weekly target: ${gt.targetHoursPerWeek}h/week`,
+      deadline: gt.deadline || build30DayEndDate(startDate),
+      status: 'in_progress',
+      milestones: [
+        { id: createId('ms'), title: `Complete Week 1 target (${gt.targetHoursPerWeek}h)`, completed: false },
+        { id: createId('ms'), title: `Complete Week 2 consistency check`, completed: false },
+      ],
+      notes: gt.notes || '',
+      linkedTaskTitles: [],
+    }));
+
+    const personalized = createPersonalizedAppState({
+      name: name.trim() || 'Builder',
       startDate,
-      wakeTime,
-      sleepTime,
-      fixedCommitments,
-      primaryGoalAreas: primaryGoalAreas.length > 0 ? primaryGoalAreas : [...LIFE_AREAS],
-      customNormalTemplate: routineBlocks,
+      basicSchedule,
+      fixedCommitments: commitments,
+      personalActivities: activities,
+      goalTargets,
+      weeklyTimetable,
+      habits,
+      goals,
     });
+
+    onComplete({ state: personalized });
   };
 
   return (
-    <div className="min-h-screen bg-[#F6F7F9] dark:bg-[#0A0A0C] text-slate-900 dark:text-slate-100 flex items-center justify-center p-4 sm:p-6">
-      <div className="w-full max-w-3xl bg-white dark:bg-[#111216] border border-slate-200 dark:border-white/10 rounded-xl shadow-xl dark:shadow-2xl overflow-hidden">
-        {/* Header */}
-        <div className="px-6 sm:px-8 py-6 border-b border-slate-200 dark:border-white/8 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+    <div className="min-h-screen bg-app text-main flex items-center justify-center p-4 sm:p-6">
+      <div className="w-full max-w-4xl bg-card border border-subtle rounded-2xl shadow-xl dark:shadow-2xl overflow-hidden">
+        {/* Hero Header */}
+        <div className="px-6 sm:px-8 py-6 border-b border-subtle flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div>
-            <p className="text-xs font-semibold text-amber-700 dark:text-amber-400 tracking-wide">
-              PROJECT REBUILD ME · 30-DAY SETUP
+            <p className="text-xs font-semibold text-gold tracking-wide uppercase">
+              {mode === 'builder' ? 'Weekly Timetable Builder' : 'Project Rebuild Me · Personalization'}
             </p>
-            <h1 className="text-2xl font-semibold text-slate-900 dark:text-white mt-1">
-              Configure Your 30-Day Execution System
+            <h1 className="text-2xl font-semibold text-main mt-1">
+              {mode === 'builder' ? 'Customize Your Weekly Timetable' : 'Build Your Own Routine'}
             </h1>
-            <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
-              Plan your days. Build your discipline. Rebuild your life.
+            <p className="text-sm text-muted mt-1">
+              Your life is different. Your timetable should be too.
             </p>
           </div>
-          <button
-            type="button"
-            onClick={onSkip}
-            className="px-4 py-2 text-xs font-medium text-slate-700 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white bg-slate-100 dark:bg-white/5 hover:bg-slate-200/70 dark:hover:bg-white/10 border border-slate-200 dark:border-white/10 rounded-lg transition-colors whitespace-nowrap shrink-0 self-start sm:self-center"
-          >
-            Skip Setup &amp; Use Sample Data
-          </button>
+
+          <div className="flex flex-wrap items-center gap-2 self-start sm:self-center">
+            {mode === 'onboarding' && onSaveDraft && (
+              <button
+                type="button"
+                onClick={handleSaveProgressLater}
+                className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-medium text-main bg-surface hover:border-gold-border border border-subtle rounded-xl transition-colors whitespace-nowrap"
+              >
+                <Save className="w-3.5 h-3.5 text-gold" />
+                Save &amp; Finish Later
+              </button>
+            )}
+            {mode === 'onboarding' ? (
+              <button
+                type="button"
+                onClick={onSkip}
+                className="px-3.5 py-2 text-xs font-medium text-muted hover:text-main bg-surface border border-subtle rounded-xl transition-colors whitespace-nowrap"
+              >
+                Skip Setup
+              </button>
+            ) : (
+              onClose && (
+                <button
+                  type="button"
+                  onClick={onClose}
+                  className="p-2 text-muted hover:text-main bg-surface border border-subtle rounded-xl"
+                  aria-label="Close timetable builder"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              )
+            )}
+          </div>
         </div>
 
-        {/* Stepper Indicator */}
-        <div className="px-6 sm:px-8 py-3.5 bg-slate-50 dark:bg-[#0D0E12] border-b border-slate-200 dark:border-white/8 flex items-center gap-6 text-xs overflow-x-auto">
+        {/* 5-Step Progress Indicator */}
+        <div className="px-6 sm:px-8 py-3 bg-surface border-b border-subtle flex items-center gap-5 text-xs overflow-x-auto">
           {[
-            { num: 1, label: '01. Schedule Anchors' },
-            { num: 2, label: '02. Commitments & Goals' },
-            { num: 3, label: '03. Baseline Routine' },
+            { num: 1, label: '1. Basic Schedule' },
+            { num: 2, label: '2. Fixed Commitments' },
+            { num: 3, label: '3. Personal Activities' },
+            { num: 4, label: '4. Goals & Targets' },
+            { num: 5, label: '5. Timetable Builder' },
           ].map((item) => (
             <button
               key={item.num}
               type="button"
-              onClick={() => setStep(item.num as 1 | 2 | 3)}
+              onClick={() => goToStep(item.num as 1 | 2 | 3 | 4 | 5)}
               className={`font-medium transition-colors whitespace-nowrap ${
                 step === item.num
-                  ? 'text-amber-700 dark:text-amber-400'
+                  ? 'text-gold font-semibold'
                   : step > item.num
-                  ? 'text-emerald-600 dark:text-emerald-400'
-                  : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'
+                  ? 'text-slate-accent'
+                  : 'text-muted hover:text-main'
               }`}
             >
               {item.label}
@@ -154,128 +581,226 @@ export function OnboardingWizard({ onComplete, onSkip }: OnboardingWizardProps) 
           ))}
         </div>
 
-        <div className="p-6 sm:p-8 max-h-[65vh] overflow-y-auto space-y-6">
+        {draftSavedNotice && (
+          <div className="mx-6 sm:mx-8 mt-4 p-3 rounded-xl bg-slate-soft border border-slate-border text-xs text-slate-accent">
+            {draftSavedNotice}
+          </div>
+        )}
+
+        <div className="p-6 sm:p-8 max-h-[66vh] overflow-y-auto space-y-6">
+          {/* STEP 1: BASIC SCHEDULE */}
           {step === 1 && (
             <div className="space-y-5">
-              <div>
-                <label className="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1.5">
-                  Your Name or Handle
-                </label>
-                <input
-                  type="text"
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  className="w-full px-3.5 py-2.5 bg-slate-50 dark:bg-[#0A0A0C] border border-slate-200 dark:border-white/10 rounded-lg text-sm text-slate-900 dark:text-slate-100 focus:outline-none focus:border-amber-500"
-                />
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1.5">
-                    Challenge Start Date
+                  <label className="block text-xs font-medium text-muted mb-1.5">
+                    Your Name or Handle
+                  </label>
+                  <input
+                    type="text"
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    placeholder="e.g., Bilal, Sara, Alex"
+                    className="w-full px-3.5 py-2.5 bg-surface border border-subtle rounded-lg text-sm text-main focus:outline-none focus:border-gold"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-muted mb-1.5">
+                    Start Date
                   </label>
                   <input
                     type="date"
                     value={startDate}
                     onChange={(e) => setStartDate(e.target.value)}
-                    className="w-full px-3.5 py-2.5 bg-slate-50 dark:bg-[#0A0A0C] border border-slate-200 dark:border-white/10 rounded-lg text-sm text-slate-900 dark:text-slate-100 font-mono tabular-nums focus:outline-none focus:border-amber-500"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1.5">
-                    Target Wake-Up Time
-                  </label>
-                  <input
-                    type="time"
-                    value={wakeTime}
-                    onChange={(e) => setWakeTime(e.target.value)}
-                    className="w-full px-3.5 py-2.5 bg-slate-50 dark:bg-[#0A0A0C] border border-slate-200 dark:border-white/10 rounded-lg text-sm text-slate-900 dark:text-slate-100 font-mono tabular-nums focus:outline-none focus:border-amber-500"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1.5">
-                    Target Sleep Time
-                  </label>
-                  <input
-                    type="time"
-                    value={sleepTime}
-                    onChange={(e) => setSleepTime(e.target.value)}
-                    className="w-full px-3.5 py-2.5 bg-slate-50 dark:bg-[#0A0A0C] border border-slate-200 dark:border-white/10 rounded-lg text-sm text-slate-900 dark:text-slate-100 font-mono tabular-nums focus:outline-none focus:border-amber-500"
+                    className="w-full px-3.5 py-2.5 bg-surface border border-subtle rounded-lg text-sm font-mono tabular-nums text-main focus:outline-none focus:border-gold"
                   />
                 </div>
               </div>
 
-              <div className="p-4 rounded-lg bg-slate-50 dark:bg-[#0A0A0C] border border-slate-200 dark:border-white/8 text-xs text-slate-600 dark:text-slate-400 leading-relaxed">
-                All timestamps, daily transitions, and active-block indicators run strictly on{' '}
-                <span className="text-slate-900 dark:text-slate-200 font-medium">
-                  Asia/Karachi (PKT, UTC+05:00)
-                </span>
-                .
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <div>
+                  <label className="block text-xs font-medium text-muted mb-1.5">
+                    Wake-up Time
+                  </label>
+                  <input
+                    type="time"
+                    value={basicSchedule.wakeTime}
+                    onChange={(e) =>
+                      setBasicSchedule((p) => ({ ...p, wakeTime: e.target.value }))
+                    }
+                    className="w-full px-3.5 py-2.5 bg-surface border border-subtle rounded-lg text-sm font-mono tabular-nums text-main"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-muted mb-1.5">
+                    Bedtime
+                  </label>
+                  <input
+                    type="time"
+                    value={basicSchedule.bedTime}
+                    onChange={(e) =>
+                      setBasicSchedule((p) => ({ ...p, bedTime: e.target.value }))
+                    }
+                    className="w-full px-3.5 py-2.5 bg-surface border border-subtle rounded-lg text-sm font-mono tabular-nums text-main"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-muted mb-1.5">
+                    Preferred Sleep (hours)
+                  </label>
+                  <input
+                    type="number"
+                    min={4}
+                    max={12}
+                    step={0.5}
+                    value={basicSchedule.preferredSleepHours}
+                    onChange={(e) =>
+                      setBasicSchedule((p) => ({
+                        ...p,
+                        preferredSleepHours: Number(e.target.value) || 8,
+                      }))
+                    }
+                    className="w-full px-3.5 py-2.5 bg-surface border border-subtle rounded-lg text-sm font-mono tabular-nums text-main"
+                  />
+                </div>
               </div>
-            </div>
-          )}
 
-          {step === 2 && (
-            <div className="space-y-6">
               <div>
-                <h3 className="text-sm font-semibold text-slate-900 dark:text-white mb-1">
-                  Primary Focus Areas
-                </h3>
-                <p className="text-xs text-slate-500 dark:text-slate-400 mb-3">
-                  Select the life pillars you want to prioritize over the next 30 days.
-                </p>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                  {LIFE_AREAS.map((area) => {
-                    const selected = primaryGoalAreas.includes(area);
+                <label className="block text-xs font-medium text-muted mb-2">
+                  Active Days of the Week
+                </label>
+                <div className="flex flex-wrap gap-2">
+                  {WEEKDAYS.map((wd) => {
+                    const active = basicSchedule.activeDaysOfWeek.includes(wd.idx);
                     return (
                       <button
-                        key={area}
+                        key={wd.idx}
                         type="button"
-                        onClick={() => toggleGoalArea(area)}
-                        className={`flex items-center justify-between px-3.5 py-2.5 rounded-lg border text-left text-xs font-medium transition-colors ${
-                          selected
-                            ? 'bg-amber-500/12 border-amber-500/50 text-amber-800 dark:text-amber-200'
-                            : 'bg-slate-50 dark:bg-[#0A0A0C] border-slate-200 dark:border-white/10 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
+                        onClick={() =>
+                          setBasicSchedule((p) => ({
+                            ...p,
+                            activeDaysOfWeek: p.activeDaysOfWeek.includes(wd.idx)
+                              ? p.activeDaysOfWeek.filter((d) => d !== wd.idx)
+                              : [...p.activeDaysOfWeek, wd.idx],
+                          }))
+                        }
+                        className={`px-3 py-1.5 text-xs font-medium rounded-lg border transition-colors ${
+                          active
+                            ? 'bg-gold-soft border-gold-border text-gold'
+                            : 'bg-surface border-subtle text-muted hover:text-main'
                         }`}
                       >
-                        <span>{area}</span>
-                        {selected && (
-                          <Check className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0" />
-                        )}
+                        {wd.label}
                       </button>
                     );
                   })}
                 </div>
               </div>
 
-              <div className="pt-4 border-t border-slate-200 dark:border-white/8">
-                <h3 className="text-sm font-semibold text-slate-900 dark:text-white mb-1">
-                  Fixed Weekly Commitments (University Classes, Labs, Tuition)
-                </h3>
-                <p className="text-xs text-slate-500 dark:text-slate-400 mb-3">
-                  These blocks will be automatically anchored on the selected weekdays.
-                </p>
+              <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
+                <div>
+                  <label className="block text-xs font-medium text-muted mb-1.5">
+                    Preferred Work/Study Start
+                  </label>
+                  <input
+                    type="time"
+                    value={basicSchedule.preferredWorkStart || '09:00'}
+                    onChange={(e) =>
+                      setBasicSchedule((p) => ({ ...p, preferredWorkStart: e.target.value }))
+                    }
+                    className="w-full px-3 py-2 bg-surface border border-subtle rounded-lg text-xs font-mono tabular-nums text-main"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-muted mb-1.5">
+                    Preferred Work/Study End
+                  </label>
+                  <input
+                    type="time"
+                    value={basicSchedule.preferredWorkEnd || '18:00'}
+                    onChange={(e) =>
+                      setBasicSchedule((p) => ({ ...p, preferredWorkEnd: e.target.value }))
+                    }
+                    className="w-full px-3 py-2 bg-surface border border-subtle rounded-lg text-xs font-mono tabular-nums text-main"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-muted mb-1.5">
+                    Break Length (min)
+                  </label>
+                  <input
+                    type="number"
+                    min={0}
+                    max={60}
+                    value={basicSchedule.breakDurationMinutes}
+                    onChange={(e) =>
+                      setBasicSchedule((p) => ({
+                        ...p,
+                        breakDurationMinutes: Math.max(0, Number(e.target.value) || 0),
+                      }))
+                    }
+                    className="w-full px-3 py-2 bg-surface border border-subtle rounded-lg text-xs font-mono tabular-nums text-main"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-muted mb-1.5">
+                    Max Focus Hours / Day
+                  </label>
+                  <input
+                    type="number"
+                    min={1}
+                    max={16}
+                    value={basicSchedule.maxDailyFocusHours}
+                    onChange={(e) =>
+                      setBasicSchedule((p) => ({
+                        ...p,
+                        maxDailyFocusHours: Math.max(1, Number(e.target.value) || 8),
+                      }))
+                    }
+                    className="w-full px-3 py-2 bg-surface border border-subtle rounded-lg text-xs font-mono tabular-nums text-main"
+                  />
+                </div>
+              </div>
+            </div>
+          )}
 
-                <div className="space-y-2 mb-4">
-                  {fixedCommitments.map((fc) => (
+          {/* STEP 2: FIXED COMMITMENTS */}
+          {step === 2 && (
+            <div className="space-y-5">
+              <div>
+                <h2 className="text-sm font-semibold text-main">
+                  Add Fixed Commitments
+                </h2>
+                <p className="text-xs text-muted mt-0.5">
+                  University lectures, school, job shifts, business meetings, prayer times, or family duties. Leave blank if you have no fixed blocks.
+                </p>
+              </div>
+
+              {commitments.length > 0 && (
+                <div className="space-y-2">
+                  {commitments.map((fc) => (
                     <div
                       key={fc.id}
-                      className="flex items-center justify-between gap-3 px-3.5 py-2.5 bg-slate-50 dark:bg-[#0A0A0C] border border-slate-200 dark:border-white/8 rounded-lg"
+                      className="flex items-center justify-between gap-3 px-3.5 py-2.5 bg-surface border border-subtle rounded-xl"
                     >
                       <div className="min-w-0">
-                        <p className="text-sm font-medium text-slate-900 dark:text-slate-200 truncate">
+                        <p className="text-sm font-medium text-main truncate">
                           {fc.title}
                         </p>
-                        <p className="text-xs text-slate-500 dark:text-slate-400 font-mono tabular-nums">
-                          {fc.startTime} – {fc.endTime} · {fc.category}
+                        <p className="text-xs text-muted font-mono tabular-nums">
+                          {fc.startTime}–{fc.endTime} · {fc.category} ·{' '}
+                          {fc.recurrence === 'one_time'
+                            ? `One-time (${fc.oneTimeDate})`
+                            : `${fc.daysOfWeek.length} day(s)/wk`}
+                          {fc.location ? ` · ${fc.location}` : ''}
                         </p>
                       </div>
                       <button
                         type="button"
                         onClick={() =>
-                          setFixedCommitments((prev) => prev.filter((item) => item.id !== fc.id))
+                          setCommitments((prev) => prev.filter((item) => item.id !== fc.id))
                         }
-                        className="p-1.5 text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 rounded transition-colors"
+                        className="p-1.5 text-muted hover:text-rose-muted"
                         aria-label="Remove commitment"
                       >
                         <Trash2 className="w-4 h-4" />
@@ -283,51 +808,90 @@ export function OnboardingWizard({ onComplete, onSkip }: OnboardingWizardProps) 
                     </div>
                   ))}
                 </div>
+              )}
 
-                <div className="p-4 bg-slate-50 dark:bg-[#0A0A0C] border border-slate-200 dark:border-white/8 rounded-lg space-y-3">
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className="p-4 bg-surface border border-subtle rounded-xl space-y-3">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <input
+                    type="text"
+                    value={cTitle}
+                    onChange={(e) => setCTitle(e.target.value)}
+                    placeholder="Activity name (e.g., Software Engineering Class, Shift, Zuhr)"
+                    className="px-3 py-2 bg-card border border-subtle rounded-lg text-xs text-main placeholder:text-muted/70"
+                  />
+                  <select
+                    value={cCategory}
+                    onChange={(e) => setCCategory(e.target.value as TaskCategory)}
+                    className="px-3 py-2 bg-card border border-subtle rounded-lg text-xs text-main"
+                  >
+                    {ALL_CATEGORIES.map((c) => (
+                      <option key={c} value={c}>
+                        {c}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <input
+                    type="text"
+                    value={cLocation}
+                    onChange={(e) => setCLocation(e.target.value)}
+                    placeholder="Location (Optional, e.g., Room 302 or Remote)"
+                    className="px-3 py-2 bg-card border border-subtle rounded-lg text-xs text-main placeholder:text-muted/70"
+                  />
+                  <input
+                    type="text"
+                    value={cDesc}
+                    onChange={(e) => setCDesc(e.target.value)}
+                    placeholder="Description / notes (Optional)"
+                    className="px-3 py-2 bg-card border border-subtle rounded-lg text-xs text-main placeholder:text-muted/70"
+                  />
+                </div>
+
+                <div className="flex flex-wrap items-center gap-3">
+                  <input
+                    type="time"
+                    value={cStart}
+                    onChange={(e) => setCStart(e.target.value)}
+                    className="px-3 py-2 bg-card border border-subtle rounded-lg text-xs font-mono tabular-nums text-main"
+                  />
+                  <span className="text-xs text-muted">to</span>
+                  <input
+                    type="time"
+                    value={cEnd}
+                    onChange={(e) => setCEnd(e.target.value)}
+                    className="px-3 py-2 bg-card border border-subtle rounded-lg text-xs font-mono tabular-nums text-main"
+                  />
+
+                  <select
+                    value={cRecurrence}
+                    onChange={(e) =>
+                      setCRecurrence(e.target.value as 'recurring' | 'one_time')
+                    }
+                    className="px-3 py-2 bg-card border border-subtle rounded-lg text-xs text-main"
+                  >
+                    <option value="recurring">Recurring Weekly</option>
+                    <option value="one_time">One-Time Date</option>
+                  </select>
+
+                  {cRecurrence === 'one_time' ? (
                     <input
-                      type="text"
-                      value={newCommitTitle}
-                      onChange={(e) => setNewCommitTitle(e.target.value)}
-                      placeholder="Commitment title (e.g., CS Lab)"
-                      className="px-3 py-2 bg-white dark:bg-[#111216] border border-slate-200 dark:border-white/10 rounded-lg text-xs text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:outline-none focus:border-amber-500"
+                      type="date"
+                      value={cOneTimeDate}
+                      onChange={(e) => setCOneTimeDate(e.target.value)}
+                      className="px-3 py-2 bg-card border border-subtle rounded-lg text-xs font-mono tabular-nums text-main"
                     />
-                    <select
-                      value={newCommitCat}
-                      onChange={(e) => setNewCommitCat(e.target.value as TaskCategory)}
-                      className="px-3 py-2 bg-white dark:bg-[#111216] border border-slate-200 dark:border-white/10 rounded-lg text-xs text-slate-900 dark:text-slate-100 focus:outline-none focus:border-amber-500"
-                    >
-                      {ALL_CATEGORIES.map((c) => (
-                        <option key={c} value={c}>
-                          {c}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                  <div className="flex flex-wrap items-center gap-3">
-                    <input
-                      type="time"
-                      value={newCommitStart}
-                      onChange={(e) => setNewCommitStart(e.target.value)}
-                      className="px-3 py-2 bg-white dark:bg-[#111216] border border-slate-200 dark:border-white/10 rounded-lg text-xs text-slate-900 dark:text-slate-100 font-mono tabular-nums"
-                    />
-                    <span className="text-xs text-slate-500">to</span>
-                    <input
-                      type="time"
-                      value={newCommitEnd}
-                      onChange={(e) => setNewCommitEnd(e.target.value)}
-                      className="px-3 py-2 bg-white dark:bg-[#111216] border border-slate-200 dark:border-white/10 rounded-lg text-xs text-slate-900 dark:text-slate-100 font-mono tabular-nums"
-                    />
+                  ) : (
                     <div className="flex items-center gap-1 flex-wrap">
                       {WEEKDAYS.map((wd) => {
-                        const active = newCommitDays.includes(wd.idx);
+                        const active = cDays.includes(wd.idx);
                         return (
                           <button
                             key={wd.idx}
                             type="button"
                             onClick={() =>
-                              setNewCommitDays((prev) =>
+                              setCDays((prev) =>
                                 prev.includes(wd.idx)
                                   ? prev.filter((d) => d !== wd.idx)
                                   : [...prev, wd.idx]
@@ -335,8 +899,8 @@ export function OnboardingWizard({ onComplete, onSkip }: OnboardingWizardProps) 
                             }
                             className={`px-2 py-1 text-[11px] font-medium rounded border transition-colors ${
                               active
-                                ? 'bg-amber-500/15 border-amber-500/50 text-amber-800 dark:text-amber-300'
-                                : 'bg-white dark:bg-[#111216] border-slate-200 dark:border-white/10 text-slate-500'
+                                ? 'bg-gold-soft border-gold-border text-gold'
+                                : 'bg-card border-subtle text-muted hover:text-main'
                             }`}
                           >
                             {wd.label}
@@ -344,101 +908,324 @@ export function OnboardingWizard({ onComplete, onSkip }: OnboardingWizardProps) 
                         );
                       })}
                     </div>
-                    <button
-                      type="button"
-                      onClick={addCommitment}
-                      className="ml-auto inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-slate-950 bg-amber-500 hover:bg-amber-400 rounded-lg transition-colors whitespace-nowrap"
-                    >
-                      <Plus className="w-3.5 h-3.5" />
-                      Add Commitment
-                    </button>
-                  </div>
+                  )}
+
+                  <button
+                    type="button"
+                    onClick={addCommitment}
+                    className="ml-auto inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold text-on-gold bg-gold hover:bg-gold-hover rounded-lg whitespace-nowrap"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    Add Commitment
+                  </button>
                 </div>
               </div>
             </div>
           )}
 
+          {/* STEP 3: PERSONAL ACTIVITIES */}
           {step === 3 && (
-            <div className="space-y-4">
+            <div className="space-y-5">
               <div>
-                <h3 className="text-sm font-semibold text-slate-900 dark:text-white">
-                  Review &amp; Fine-Tune Your Daily Routine Blocks
-                </h3>
-                <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-                  Adjust timings or remove blocks you do not want in your default schedule. You can customize University, Weekend, Holiday, and Exam schedules anytime.
+                <h2 className="text-sm font-semibold text-main">
+                  Select or Create Your Personal Activities
+                </h2>
+                <p className="text-xs text-muted mt-0.5">
+                  Pick the habits, study sessions, fitness, business, or creative blocks you actually want in your life.
                 </p>
               </div>
-              <div className="space-y-2">
-                {routineBlocks.map((block, idx) => (
-                  <div
-                    key={idx}
-                    className="grid grid-cols-12 gap-2 items-center p-2.5 bg-slate-50 dark:bg-[#0A0A0C] border border-slate-200 dark:border-white/8 rounded-lg"
-                  >
-                    <input
-                      type="time"
-                      value={block.startTime}
-                      onChange={(e) => updateRoutineBlock(idx, { startTime: e.target.value })}
-                      className="col-span-3 sm:col-span-2 px-2 py-1.5 bg-white dark:bg-[#111216] border border-slate-200 dark:border-white/10 rounded text-xs font-mono tabular-nums text-slate-900 dark:text-slate-200"
-                    />
-                    <input
-                      type="time"
-                      value={block.endTime}
-                      onChange={(e) => updateRoutineBlock(idx, { endTime: e.target.value })}
-                      className="col-span-3 sm:col-span-2 px-2 py-1.5 bg-white dark:bg-[#111216] border border-slate-200 dark:border-white/10 rounded text-xs font-mono tabular-nums text-slate-900 dark:text-slate-200"
-                    />
-                    <input
-                      type="text"
-                      value={block.title}
-                      onChange={(e) => updateRoutineBlock(idx, { title: e.target.value })}
-                      className="col-span-5 sm:col-span-5 px-2.5 py-1.5 bg-white dark:bg-[#111216] border border-slate-200 dark:border-white/10 rounded text-xs text-slate-900 dark:text-slate-100"
-                    />
-                    <select
-                      value={block.category}
-                      onChange={(e) =>
-                        updateRoutineBlock(idx, { category: e.target.value as TaskCategory })
-                      }
-                      className="hidden sm:block sm:col-span-2 px-2 py-1.5 bg-white dark:bg-[#111216] border border-slate-200 dark:border-white/10 rounded text-xs text-slate-700 dark:text-slate-300"
-                    >
-                      {ALL_CATEGORIES.map((c) => (
-                        <option key={c} value={c}>
-                          {c}
-                        </option>
-                      ))}
-                    </select>
+
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                {SUGGESTED_ACTIVITIES.map((item) => {
+                  const selected = activities.some(
+                    (a) => a.name.toLowerCase() === item.name.toLowerCase()
+                  );
+                  return (
                     <button
+                      key={item.name}
                       type="button"
-                      onClick={() => removeRoutineBlock(idx)}
-                      className="col-span-1 flex justify-center p-1.5 text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 transition-colors"
-                      aria-label="Delete block"
+                      onClick={() => toggleSuggestedActivity(item)}
+                      className={`flex items-center justify-between gap-2 px-3 py-2.5 rounded-xl border text-left text-xs transition-colors ${
+                        selected
+                          ? 'bg-gold-soft border-gold-border text-gold font-medium'
+                          : 'bg-surface border-subtle text-main hover:border-gold-border'
+                      }`}
                     >
-                      <Trash2 className="w-4 h-4" />
+                      <span className="truncate">{item.name}</span>
+                      {selected && <Check className="w-3.5 h-3.5 shrink-0" />}
                     </button>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
+
+              {activities.length > 0 && (
+                <div className="space-y-2">
+                  <p className="text-xs font-semibold text-main">
+                    Selected Activities ({activities.length})
+                  </p>
+                  {activities.map((act) => (
+                    <div
+                      key={act.id}
+                      className="flex flex-wrap items-center justify-between gap-2 px-3.5 py-2.5 bg-surface border border-subtle rounded-xl text-xs"
+                    >
+                      <div className="min-w-0 flex-1">
+                        <p className="font-medium text-main truncate">{act.name}</p>
+                        <p className="text-muted mt-0.5">
+                          {act.category} · {act.preferredDurationMinutes}m · {act.priority} ·{' '}
+                          {act.weeklyFrequency}x/week · {act.preferredTimeOfDay.replace('_', ' ')}
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setActivities((prev) => prev.filter((x) => x.id !== act.id))
+                        }
+                        className="p-1.5 text-muted hover:text-rose-muted"
+                        aria-label="Remove activity"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Custom Activity Creator */}
+              <div className="p-4 bg-surface border border-subtle rounded-xl space-y-3">
+                <p className="text-xs font-semibold text-main">Create Custom Activity</p>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                  <input
+                    type="text"
+                    value={aName}
+                    onChange={(e) => setAName(e.target.value)}
+                    placeholder="Custom activity name"
+                    className="px-3 py-2 bg-card border border-subtle rounded-lg text-xs text-main"
+                  />
+                  <select
+                    value={aCategory}
+                    onChange={(e) => setACategory(e.target.value as TaskCategory)}
+                    className="px-3 py-2 bg-card border border-subtle rounded-lg text-xs text-main"
+                  >
+                    {ALL_CATEGORIES.map((c) => (
+                      <option key={c} value={c}>
+                        {c}
+                      </option>
+                    ))}
+                  </select>
+                  <select
+                    value={aTimeOfDay}
+                    onChange={(e) =>
+                      setATimeOfDay(e.target.value as PreferredTimeOfDay)
+                    }
+                    className="px-3 py-2 bg-card border border-subtle rounded-lg text-xs text-main"
+                  >
+                    {TIME_OF_DAY_OPTIONS.map((o) => (
+                      <option key={o.id} value={o.id}>
+                        {o.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div className="flex flex-wrap items-center gap-3">
+                  <label className="text-xs text-muted flex items-center gap-1.5">
+                    Duration (m):
+                    <input
+                      type="number"
+                      min={10}
+                      max={240}
+                      value={aDuration}
+                      onChange={(e) => setADuration(Number(e.target.value) || 45)}
+                      className="w-16 px-2 py-1.5 bg-card border border-subtle rounded-lg text-xs font-mono text-main"
+                    />
+                  </label>
+                  <label className="text-xs text-muted flex items-center gap-1.5">
+                    Days/wk:
+                    <input
+                      type="number"
+                      min={1}
+                      max={7}
+                      value={aFreq}
+                      onChange={(e) => setAFreq(Math.min(7, Math.max(1, Number(e.target.value) || 1)))}
+                      className="w-14 px-2 py-1.5 bg-card border border-subtle rounded-lg text-xs font-mono text-main"
+                    />
+                  </label>
+                  <select
+                    value={aPriority}
+                    onChange={(e) => setAPriority(e.target.value as TaskPriority)}
+                    className="px-2.5 py-1.5 bg-card border border-subtle rounded-lg text-xs text-main"
+                  >
+                    {(['Critical', 'High', 'Medium', 'Low'] as TaskPriority[]).map((p) => (
+                      <option key={p} value={p}>
+                        {p} Priority
+                      </option>
+                    ))}
+                  </select>
+                  <button
+                    type="button"
+                    onClick={addCustomActivity}
+                    className="ml-auto inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold text-on-gold bg-gold hover:bg-gold-hover rounded-lg"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    Add Custom Activity
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* STEP 4: GOALS & WEEKLY TIME TARGETS */}
+          {step === 4 && (
+            <div className="space-y-5">
+              <div>
+                <h2 className="text-sm font-semibold text-main">
+                  Personal Goals &amp; Weekly Time Targets
+                </h2>
+                <p className="text-xs text-muted mt-0.5">
+                  Define goals you want to track and how many hours per week you aim to dedicate to each.
+                </p>
+              </div>
+
+              {goalTargets.length > 0 && (
+                <div className="space-y-2">
+                  {goalTargets.map((gt) => (
+                    <div
+                      key={gt.id}
+                      className="flex items-center justify-between gap-3 px-3.5 py-2.5 bg-surface border border-subtle rounded-xl text-xs"
+                    >
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium text-main truncate">{gt.title}</p>
+                        <p className="text-muted">
+                          {gt.area} · Target: {gt.targetHoursPerWeek}h/week
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setGoalTargets((prev) => prev.filter((x) => x.id !== gt.id))
+                        }
+                        className="p-1.5 text-muted hover:text-rose-muted"
+                        aria-label="Remove goal"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              <div className="p-4 bg-surface border border-subtle rounded-xl space-y-3">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <input
+                    type="text"
+                    value={gTitle}
+                    onChange={(e) => setGTitle(e.target.value)}
+                    placeholder="Goal title (e.g., Ship SaaS MVP, Pass Calculus, Run 5K)"
+                    className="px-3 py-2 bg-card border border-subtle rounded-lg text-xs text-main"
+                  />
+                  <select
+                    value={gArea}
+                    onChange={(e) => setGArea(e.target.value as LifeArea)}
+                    className="px-3 py-2 bg-card border border-subtle rounded-lg text-xs text-main"
+                  >
+                    {LIFE_AREAS.map((area) => (
+                      <option key={area} value={area}>
+                        {area}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div className="flex flex-wrap items-center gap-3">
+                  <label className="text-xs text-muted flex items-center gap-1.5">
+                    Weekly target hours:
+                    <input
+                      type="number"
+                      min={1}
+                      max={60}
+                      value={gHours}
+                      onChange={(e) => setGHours(Math.max(1, Number(e.target.value) || 5))}
+                      className="w-16 px-2.5 py-1.5 bg-card border border-subtle rounded-lg text-xs font-mono text-main"
+                    />
+                  </label>
+                  <input
+                    type="text"
+                    value={gNotes}
+                    onChange={(e) => setGNotes(e.target.value)}
+                    placeholder="Notes (optional)"
+                    className="flex-1 min-w-[160px] px-3 py-1.5 bg-card border border-subtle rounded-lg text-xs text-main"
+                  />
+                  <button
+                    type="button"
+                    onClick={addGoalTarget}
+                    className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold text-on-gold bg-gold hover:bg-gold-hover rounded-lg"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    Add Goal
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* STEP 5: INTERACTIVE TIMETABLE BUILDER */}
+          {step === 5 && (
+            <div className="space-y-4">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <h2 className="text-sm font-semibold text-main">
+                    Interactive Weekly Timetable Builder
+                  </h2>
+                  <p className="text-xs text-muted mt-0.5">
+                    Drag blocks to reorder, edit times, copy days, or optionally request an AI layout. Total weekly planned work: <strong className="text-gold">{totalWeeklyPlannedHours}h</strong>
+                  </p>
+                </div>
+                {mode === 'onboarding' && (commitments.length > 0 || activities.length > 0) && (
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setWeeklyTimetable(
+                        generateInitialWeeklyTimetable(basicSchedule, commitments, activities)
+                      )
+                    }
+                    className="inline-flex items-center gap-1 text-xs font-medium text-muted hover:text-gold"
+                  >
+                    <Sparkles className="w-3.5 h-3.5" />
+                    Rebuild from Steps 1–3
+                  </button>
+                )}
+              </div>
+
+              <TimetableEditor
+                timetable={weeklyTimetable}
+                onChange={setWeeklyTimetable}
+                basicSchedule={basicSchedule}
+                commitments={commitments}
+                activities={activities}
+                goalTargets={goalTargets}
+              />
             </div>
           )}
         </div>
 
-        {/* Footer Actions */}
-        <div className="px-6 sm:px-8 py-4 bg-slate-50 dark:bg-[#0D0E12] border-t border-slate-200 dark:border-white/8 flex items-center justify-between gap-3">
+        {/* Footer Navigation */}
+        <div className="px-6 sm:px-8 py-4 bg-surface border-t border-subtle flex items-center justify-between gap-3">
           <div>
             {step > 1 && (
               <button
                 type="button"
-                onClick={() => setStep((s) => (s - 1) as 1 | 2 | 3)}
-                className="px-4 py-2 text-sm font-medium text-slate-700 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white bg-white dark:bg-white/5 hover:bg-slate-100 dark:hover:bg-white/10 border border-slate-200 dark:border-transparent rounded-lg transition-colors"
+                onClick={() => setStep((s) => (s - 1) as 1 | 2 | 3 | 4 | 5)}
+                className="px-4 py-2 text-sm font-medium text-main bg-card hover:border-gold-border border border-subtle rounded-xl transition-colors"
               >
                 Back
               </button>
             )}
           </div>
+
           <div className="flex items-center gap-3">
-            {step < 3 ? (
+            {step < 5 ? (
               <button
                 type="button"
-                onClick={() => setStep((s) => (s + 1) as 1 | 2 | 3)}
-                className="inline-flex items-center gap-2 px-5 py-2 text-sm font-semibold text-slate-950 bg-amber-500 hover:bg-amber-400 rounded-lg transition-colors"
+                onClick={() => goToStep((step + 1) as 1 | 2 | 3 | 4 | 5)}
+                className="inline-flex items-center gap-2 px-5 py-2 text-sm font-semibold text-on-gold bg-gold hover:bg-gold-hover rounded-xl transition-colors"
               >
                 Continue
                 <ArrowRight className="w-4 h-4" />
@@ -447,9 +1234,9 @@ export function OnboardingWizard({ onComplete, onSkip }: OnboardingWizardProps) 
               <button
                 type="button"
                 onClick={handleFinish}
-                className="inline-flex items-center gap-2 px-5 py-2 text-sm font-semibold text-slate-950 bg-amber-500 hover:bg-amber-400 rounded-lg transition-colors"
+                className="inline-flex items-center gap-2 px-5 py-2 text-sm font-semibold text-on-gold bg-gold hover:bg-gold-hover rounded-xl transition-colors"
               >
-                Launch 30-Day Plan
+                {mode === 'builder' ? 'Save & Apply Timetable' : 'Save & Launch My Plan'}
                 <ArrowRight className="w-4 h-4" />
               </button>
             )}
@@ -459,3 +1246,17 @@ export function OnboardingWizard({ onComplete, onSkip }: OnboardingWizardProps) 
     </div>
   );
 }
+
+function build30DayEndDate(startDate: string): string {
+  const days = build30DaysSchedule(startDate, {
+    normal: [],
+    university: [],
+    weekend: [],
+    holiday: [],
+    exam: [],
+  });
+  const sorted = Object.keys(days).sort();
+  return sorted[sorted.length - 1] || startDate;
+}
+
+export { createInitialAppState };

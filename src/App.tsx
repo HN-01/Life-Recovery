@@ -2,10 +2,12 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { onAuthStateChanged, signOut, User } from 'firebase/auth';
 import {
   AlertCircle,
+  AlarmClock,
   BarChart3,
   Bell,
   Bot,
   CalendarDays,
+  Check,
   CheckCircle2,
   ChevronDown,
   ClipboardList,
@@ -19,6 +21,7 @@ import {
   Menu,
   PanelLeftClose,
   PanelLeftOpen,
+  Play,
   Plus,
   Settings,
   Target,
@@ -29,12 +32,11 @@ import {
   CoachConversation,
   DailyReviewEntry,
   DashboardPreferences,
-  FixedCommitment,
   FocusSession,
   Goal,
   Habit,
-  LifeArea,
   NavSection,
+  OnboardingDraft,
   Project,
   ProposedGoalAction,
   ProposedScheduleChange,
@@ -42,6 +44,7 @@ import {
   RoutineTask,
   RoutineUpdateScope,
   ScheduleType,
+  SmartNotification,
   SyncStatus,
   TemplateTask,
   WeeklyReview,
@@ -69,7 +72,6 @@ import { storageRepo } from './services/storage';
 import {
   addDaysToDateStr,
   formatTime12h,
-  getEffectiveTaskState,
   getKarachiNow,
   KarachiNow,
   sortTasksChronologically,
@@ -79,6 +81,22 @@ import {
   applyTaskUpdateWithScope,
   getCurrentChallengeDay,
 } from './utils/metrics';
+import {
+  evaluateSmartNotifications,
+  getZonedClock,
+  normalizeNotificationPreferences,
+} from './utils/notificationEngine';
+import {
+  BrowserPermissionState,
+  fetchServerVapidConfig,
+  getBrowserNotificationPermission,
+  registerAppServiceWorker,
+  requestBrowserNotificationPermission,
+  showBrowserNotification,
+  subscribeDeviceWebPush,
+  triggerServerTestPush,
+  unsubscribeDeviceWebPush,
+} from './utils/pushNotifications';
 import { buildDeterministicSmartPlan } from './utils/smartScheduler';
 import { deduplicateDayTasks } from './utils/focusMetrics';
 import { AuthGate } from './components/AuthGate';
@@ -88,6 +106,7 @@ import { TaskModal } from './components/TaskModal';
 import { DailyReviewModal } from './components/DailyReviewModal';
 import { SmartPlanModal } from './components/SmartPlanModal';
 import { ConfirmDialog } from './components/ui/ConfirmDialog';
+import { ThemeToggle } from './components/ui/ThemeToggle';
 import { DashboardView } from './components/views/DashboardView';
 import { DailyRoutineView } from './components/views/DailyRoutineView';
 import { Planner30DayView } from './components/views/Planner30DayView';
@@ -154,6 +173,21 @@ export default function App() {
   const [dailyReviewOpen, setDailyReviewOpen] = useState(false);
   const [newPlanConfirmOpen, setNewPlanConfirmOpen] = useState(false);
   const [toastMessage, setToastMessage] = useState<string>('');
+  const [timetableBuilderOpen, setTimetableBuilderOpen] = useState(false);
+  const [onboardingMode, setOnboardingMode] = useState<'onboarding' | 'builder'>('builder');
+
+  // Notifications & Web Push state
+  const [notificationPermission, setNotificationPermission] = useState<BrowserPermissionState>(
+    () => getBrowserNotificationPermission()
+  );
+  const [vapidStatus, setVapidStatus] = useState<{
+    configured: boolean;
+    publicKey: string | null;
+    cronConfigured: boolean;
+    loading: boolean;
+  }>({ configured: false, publicKey: null, cronConfigured: false, loading: true });
+  const [activeNotifToast, setActiveNotifToast] = useState<SmartNotification | null>(null);
+  const firedBrowserNotifIdsRef = useRef<Set<string>>(new Set());
 
   // Smart Plan Modal state
   const [smartPlanOpen, setSmartPlanOpen] = useState(false);
@@ -293,12 +327,25 @@ export default function App() {
     };
   }, [authUser]);
 
-  // 4. Refresh Asia/Karachi clock every 30s
+  // 4. Refresh Asia/Karachi clock every 20s
   useEffect(() => {
     const timer = window.setInterval(() => {
       setNow(getKarachiNow());
-    }, 30000);
+    }, 20000);
     return () => window.clearInterval(timer);
+  }, []);
+
+  // 5. Register Service Worker & load server VAPID config
+  useEffect(() => {
+    registerAppServiceWorker();
+    fetchServerVapidConfig().then((cfg) => {
+      setVapidStatus({
+        configured: cfg.configured,
+        publicKey: cfg.publicKey,
+        cronConfigured: cfg.cronConfigured,
+        loading: false,
+      });
+    });
   }, []);
 
   /**
@@ -327,6 +374,171 @@ export default function App() {
     },
     [authUser]
   );
+
+  // 6. Handle Service Worker Notification Click Actions & URL deep links
+  const applyNotificationAction = useCallback(
+    (payload: {
+      action?: string;
+      taskId?: string;
+      dateStr?: string;
+      notificationId?: string;
+    }) => {
+      const { action, taskId, dateStr, notificationId } = payload;
+      if (action === 'complete' && taskId) {
+        const targetDate = dateStr || getKarachiNow().dateStr;
+        commitStateUpdate((prev) => {
+          const day = prev.days[targetDate];
+          const nextDays = day
+            ? {
+                ...prev.days,
+                [targetDate]: {
+                  ...day,
+                  tasks: day.tasks.map((t) =>
+                    t.id === taskId ? { ...t, status: 'completed' as const } : t
+                  ),
+                },
+              }
+            : prev.days;
+          return {
+            ...prev,
+            days: nextDays,
+            notifications: (prev.notifications || []).map((n) =>
+              n.id === notificationId || n.taskId === taskId
+                ? { ...n, read: true, dismissed: true }
+                : n
+            ),
+          };
+        });
+        showToast('Activity marked completed.');
+        return;
+      }
+
+      if (action === 'start') {
+        if (dateStr) setSelectedDate(dateStr);
+        setActiveSection('dashboard');
+        if (notificationId) {
+          commitStateUpdate((prev) => ({
+            ...prev,
+            notifications: (prev.notifications || []).map((n) =>
+              n.id === notificationId ? { ...n, read: true } : n
+            ),
+          }));
+        }
+        return;
+      }
+
+      if (dateStr) setSelectedDate(dateStr);
+      setActiveSection('routine');
+    },
+    [commitStateUpdate, showToast]
+  );
+
+  useEffect(() => {
+    if (!cloudReady || !authUser) return;
+
+    const params = new URLSearchParams(window.location.search);
+    const notifAction = params.get('notifAction');
+    if (notifAction) {
+      applyNotificationAction({
+        action: notifAction,
+        taskId: params.get('taskId') || undefined,
+        dateStr: params.get('date') || undefined,
+        notificationId: params.get('notificationId') || undefined,
+      });
+      window.history.replaceState({}, '', window.location.pathname);
+    }
+
+    if (typeof navigator !== 'undefined' && 'serviceWorker' in navigator) {
+      const onSwMessage = (event: MessageEvent) => {
+        if (event.data?.type === 'NOTIFICATION_ACTION') {
+          applyNotificationAction(event.data);
+        }
+      };
+      navigator.serviceWorker.addEventListener('message', onSwMessage);
+      return () => navigator.serviceWorker.removeEventListener('message', onSwMessage);
+    }
+  }, [cloudReady, authUser, applyNotificationAction]);
+
+  // 7. Smart Timetable Notification Evaluator (Timezone-aware, deduped, quiet-hours safe)
+  const runNotificationCheck = useCallback(() => {
+    const current = stateRef.current;
+    if (!authUser || !cloudReady || !current.profile.onboardingCompleted) return;
+    const nPrefs = normalizeNotificationPreferences(
+      current.profile.notificationPreferences,
+      current.profile.wakeTime,
+      current.profile.sleepTime
+    );
+    const clock = getZonedClock(nPrefs.timezone);
+    const existing = current.notifications || [];
+    const result = evaluateSmartNotifications({
+      state: current,
+      clock,
+      existingNotifications: existing,
+    });
+
+    if (
+      result.newNotifications.length > 0 ||
+      result.supersededIds.length > 0 ||
+      result.unsnoozedIds.length > 0
+    ) {
+      const supersededSet = new Set(result.supersededIds);
+      const unsnoozedSet = new Set(result.unsnoozedIds);
+
+      commitStateUpdate((prev) => {
+        const updatedExisting = (prev.notifications || []).map((n) => {
+          if (supersededSet.has(n.id)) {
+            return { ...n, dismissed: true, read: true };
+          }
+          if (unsnoozedSet.has(n.id)) {
+            return { ...n, snoozedUntil: undefined, read: false };
+          }
+          return n;
+        });
+
+        const merged = [...result.newNotifications, ...updatedExisting].slice(0, 60);
+        return {
+          ...prev,
+          notifications: merged,
+        };
+      });
+
+      if (result.newNotifications.length > 0 && !result.quietHoursActive) {
+        const latest = result.newNotifications[0];
+        setActiveNotifToast(latest);
+        window.setTimeout(() => {
+          setActiveNotifToast((curr) => (curr?.id === latest.id ? null : curr));
+        }, 7500);
+
+        if (nPrefs.browserNotificationsEnabled) {
+          for (const n of result.newNotifications) {
+            if (firedBrowserNotifIdsRef.current.has(n.id)) continue;
+            firedBrowserNotifIdsRef.current.add(n.id);
+            showBrowserNotification({
+              title: n.title,
+              body: n.body,
+              tag: n.dedupeKey,
+              taskId: n.taskId,
+              notificationId: n.id,
+              dateStr: n.dateStr,
+            });
+          }
+        }
+      }
+    }
+  }, [authUser, cloudReady, commitStateUpdate]);
+
+  useEffect(() => {
+    runNotificationCheck();
+    const id = window.setInterval(runNotificationCheck, 20000);
+    return () => window.clearInterval(id);
+  }, [
+    runNotificationCheck,
+    now.minutesSinceMidnight,
+    state.days,
+    state.goals,
+    state.projects,
+    state.profile.notificationPreferences,
+  ]);
 
   // Migration Handler (Avoids duplicates & verifies write before clearing local data)
   const handleMigrateLocalToCloud = async () => {
@@ -431,9 +643,9 @@ export default function App() {
   // Auth Gate
   if (!authReady) {
     return (
-      <div className="min-h-screen bg-[#0A0A0C] text-slate-300 flex items-center justify-center">
+      <div className="min-h-screen bg-app text-muted flex items-center justify-center">
         <div className="inline-flex items-center gap-2.5 text-sm">
-          <Loader2 className="w-4 h-4 animate-spin text-amber-400" />
+          <Loader2 className="w-4 h-4 animate-spin text-gold" />
           Checking authentication session...
         </div>
       </div>
@@ -446,34 +658,30 @@ export default function App() {
 
   if (!cloudReady) {
     return (
-      <div className="min-h-screen bg-[#0A0A0C] text-slate-300 flex items-center justify-center">
+      <div className="min-h-screen bg-app text-muted flex items-center justify-center">
         <div className="inline-flex items-center gap-2.5 text-sm">
-          <Loader2 className="w-4 h-4 animate-spin text-amber-400" />
+          <Loader2 className="w-4 h-4 animate-spin text-gold" />
           Loading your private Cloud Firestore workspace...
         </div>
       </div>
     );
   }
 
-  // Onboarding gate
-  const handleCompleteOnboarding = (config: {
-    name: string;
-    startDate: string;
-    wakeTime: string;
-    sleepTime: string;
-    fixedCommitments: FixedCommitment[];
-    primaryGoalAreas: LifeArea[];
-    customNormalTemplate: TemplateTask[];
-  }) => {
-    const fresh = createInitialAppState({
-      ...config,
-      onboardingCompleted: true,
-    });
-    fresh.profile.email = authUser.email || '';
-    fresh.profile.photoUrl = authUser.photoURL || '';
+  // Onboarding gate (5-step personalized setup or Timetable Builder)
+  const handleCompleteOnboarding = (result: { state: AppState }) => {
+    const fresh: AppState = {
+      ...result.state,
+      profile: {
+        ...result.state.profile,
+        email: authUser.email || result.state.profile.email || '',
+        photoUrl: authUser.photoURL || result.state.profile.photoUrl || '',
+        onboardingCompleted: true,
+      },
+    };
 
     setState(fresh);
     stateRef.current = fresh;
+    setTimetableBuilderOpen(false);
     writeFullAppStateToFirestore(authUser.uid, fresh)
       .then(() => {
         setSyncStatus('synced');
@@ -486,23 +694,45 @@ export default function App() {
 
     const firstOrToday = getCurrentChallengeDay(fresh, now.dateStr);
     if (firstOrToday) setSelectedDate(firstOrToday.date);
-    showToast('30-Day execution plan saved to Cloud Firestore.');
+    showToast('Personalized timetable saved to Cloud Firestore.');
   };
 
-  const handleSkipOnboarding = () => {
+  const handleSaveOnboardingDraft = (draft: OnboardingDraft) => {
     commitStateUpdate((prev) => ({
       ...prev,
       profile: {
         ...prev.profile,
+        onboardingDraft: draft,
         onboardingCompleted: true,
+        onboardingSkipped: true,
       },
     }));
+    showToast('Setup progress saved. Resume anytime from the dashboard.');
+  };
+
+  const handleSkipOnboarding = () => {
+    const cleanBlank = createInitialAppState({
+      name: authUser.displayName || state.profile.name || 'Builder',
+      startDate: now.dateStr,
+      onboardingCompleted: true,
+      onboardingSkipped: true,
+      blankSetup: true,
+    });
+    cleanBlank.profile.email = authUser.email || '';
+    cleanBlank.profile.photoUrl = authUser.photoURL || '';
+    setState(cleanBlank);
+    stateRef.current = cleanBlank;
+    writeFullAppStateToFirestore(authUser.uid, cleanBlank);
+    showToast('Flexible blank workspace ready. Customize anytime in Settings.');
   };
 
   if (!state.profile.onboardingCompleted) {
     return (
       <>
         <OnboardingWizard
+          initialState={state}
+          mode="onboarding"
+          onSaveDraft={handleSaveOnboardingDraft}
           onComplete={handleCompleteOnboarding}
           onSkip={handleSkipOnboarding}
         />
@@ -515,6 +745,19 @@ export default function App() {
           onSkipKeepCloud={handleSkipMigration}
         />
       </>
+    );
+  }
+
+  if (timetableBuilderOpen) {
+    return (
+      <OnboardingWizard
+        initialState={state}
+        mode={onboardingMode}
+        onSaveDraft={handleSaveOnboardingDraft}
+        onComplete={handleCompleteOnboarding}
+        onSkip={() => setTimetableBuilderOpen(false)}
+        onClose={() => setTimetableBuilderOpen(false)}
+      />
     );
   }
 
@@ -913,63 +1156,183 @@ export default function App() {
     showToast(`Saved goal "${action.goalTitle}".`);
   };
 
-  // Notification center derived strictly from real missed/due items
-  const liveNotifications: Array<{
-    id: string;
-    title: string;
-    detail: string;
-    targetSection: NavSection;
-  }> = [];
-
-  if (todayDay) {
-    const missedToday = todayDay.tasks.filter(
-      (t) => getEffectiveTaskState(t, todayDay.date, now) === 'missed'
-    );
-    for (const mt of missedToday.slice(0, 3)) {
-      liveNotifications.push({
-        id: `missed_${mt.id}`,
-        title: `Missed block: ${mt.title}`,
-        detail: `${formatTime12h(mt.startTime)} – ${formatTime12h(mt.endTime)} · Open Smart Plan or Coach to reschedule`,
-        targetSection: 'coach',
-      });
-    }
-    const activeBlock = todayDay.tasks.find(
-      (t) => getEffectiveTaskState(t, todayDay.date, now) === 'active'
-    );
-    if (activeBlock) {
-      liveNotifications.push({
-        id: `active_${activeBlock.id}`,
-        title: `Active now: ${activeBlock.title}`,
-        detail: `Ends at ${formatTime12h(activeBlock.endTime)}`,
-        targetSection: 'dashboard',
-      });
-    }
-  }
-
-  const habitsDueToday = state.habits.filter((h) => !h.logs[now.dateStr]);
-  if (habitsDueToday.length > 0) {
-    liveNotifications.push({
-      id: 'habits_due',
-      title: `${habitsDueToday.length} habit${habitsDueToday.length === 1 ? '' : 's'} remaining today`,
-      detail: habitsDueToday
-        .slice(0, 2)
-        .map((h) => h.title)
-        .join(' · '),
-      targetSection: 'habits',
-    });
-  }
-
-  const overdueGoals = state.goals.filter(
-    (g) => g.status !== 'completed' && g.deadline < now.dateStr
+  // Smart Notifications Inbox + Interactive Actions
+  const nowMs = Date.now();
+  const visibleNotifications = (state.notifications || []).filter(
+    (n) => !n.dismissed && (!n.snoozedUntil || Date.parse(n.snoozedUntil) <= nowMs)
   );
-  if (overdueGoals.length > 0) {
-    liveNotifications.push({
-      id: 'goals_overdue',
-      title: `${overdueGoals.length} goal${overdueGoals.length === 1 ? '' : 's'} past target deadline`,
-      detail: overdueGoals[0].title,
-      targetSection: 'goals',
-    });
-  }
+  const unreadNotificationCount = visibleNotifications.filter((n) => !n.read).length;
+
+  const handleDismissNotification = (notifId: string) => {
+    commitStateUpdate((prev) => ({
+      ...prev,
+      notifications: (prev.notifications || []).map((n) =>
+        n.id === notifId ? { ...n, read: true, dismissed: true } : n
+      ),
+    }));
+  };
+
+  const handleSnoozeNotification = (n: SmartNotification, minutes = 10) => {
+    const until = new Date(Date.now() + minutes * 60000).toISOString();
+    commitStateUpdate((prev) => ({
+      ...prev,
+      notifications: (prev.notifications || []).map((item) =>
+        item.id === n.id ? { ...item, snoozedUntil: until, read: true } : item
+      ),
+    }));
+    if (activeNotifToast?.id === n.id) setActiveNotifToast(null);
+    showToast(`Snoozed for ${minutes} minutes.`);
+  };
+
+  const handleNotificationCompleteTask = (n: SmartNotification) => {
+    if (n.taskId && n.dateStr) {
+      handleSetTaskStatus(n.dateStr, n.taskId, 'completed');
+    }
+    handleDismissNotification(n.id);
+    if (activeNotifToast?.id === n.id) setActiveNotifToast(null);
+  };
+
+  const handleNotificationReschedule = (n: SmartNotification) => {
+    const targetDate = n.dateStr || effectiveTodayDate;
+    const task = state.days[targetDate]?.tasks.find((t) => t.id === n.taskId);
+    setSelectedDate(targetDate);
+    setNotificationsOpen(false);
+    if (activeNotifToast?.id === n.id) setActiveNotifToast(null);
+    if (task) {
+      openEditTaskForDate(targetDate, task);
+    } else {
+      navigateTo(n.targetSection || 'routine');
+    }
+  };
+
+  const handleMarkAllNotificationsRead = () => {
+    commitStateUpdate((prev) => ({
+      ...prev,
+      notifications: (prev.notifications || []).map((n) => ({ ...n, read: true })),
+    }));
+  };
+
+  const handleRequestNotificationPermission = async () => {
+    const perm = await requestBrowserNotificationPermission();
+    setNotificationPermission(perm);
+    const currentPrefs = normalizeNotificationPreferences(
+      stateRef.current.profile.notificationPreferences,
+      stateRef.current.profile.wakeTime,
+      stateRef.current.profile.sleepTime
+    );
+    commitStateUpdate((prev) => ({
+      ...prev,
+      profile: {
+        ...prev.profile,
+        notificationPreferences: {
+          ...currentPrefs,
+          browserNotificationsEnabled: perm === 'granted',
+          updatedAt: new Date().toISOString(),
+        },
+      },
+    }));
+    showToast(
+      perm === 'granted'
+        ? 'Browser notifications enabled.'
+        : 'Browser notification permission was not granted.'
+    );
+  };
+
+  const handleEnableWebPush = async () => {
+    if (!vapidStatus.configured || !vapidStatus.publicKey) {
+      showToast('Server VAPID keys are required for background Web Push.');
+      return;
+    }
+    try {
+      const currentPrefs = normalizeNotificationPreferences(
+        stateRef.current.profile.notificationPreferences,
+        stateRef.current.profile.wakeTime,
+        stateRef.current.profile.sleepTime
+      );
+      const subRecord = await subscribeDeviceWebPush(
+        vapidStatus.publicKey,
+        currentPrefs.timezone
+      );
+      setNotificationPermission(getBrowserNotificationPermission());
+      commitStateUpdate((prev) => ({
+        ...prev,
+        profile: {
+          ...prev.profile,
+          notificationPreferences: {
+            ...currentPrefs,
+            browserNotificationsEnabled: true,
+            webPushEnabled: true,
+            updatedAt: new Date().toISOString(),
+          },
+        },
+        pushSubscriptions: [
+          ...(prev.pushSubscriptions || []).filter((s) => s.id !== subRecord.id),
+          subRecord,
+        ],
+      }));
+      showToast('Web Push enabled for this device.');
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : 'Unable to enable Web Push.');
+    }
+  };
+
+  const handleDisableWebPush = async () => {
+    await unsubscribeDeviceWebPush();
+    const currentPrefs = normalizeNotificationPreferences(
+      stateRef.current.profile.notificationPreferences,
+      stateRef.current.profile.wakeTime,
+      stateRef.current.profile.sleepTime
+    );
+    commitStateUpdate((prev) => ({
+      ...prev,
+      profile: {
+        ...prev.profile,
+        notificationPreferences: {
+          ...currentPrefs,
+          webPushEnabled: false,
+          updatedAt: new Date().toISOString(),
+        },
+      },
+      pushSubscriptions: [],
+    }));
+    showToast('Web Push disabled.');
+  };
+
+  const handleSendTestNotification = async () => {
+    const nowIso = new Date().toISOString();
+    const testNotif: SmartNotification = {
+      id: createId('test_notif'),
+      dedupeKey: `test_${Date.now()}`,
+      type: 'upcoming_activity',
+      title: 'Test Smart Timetable Alert',
+      body: 'In-app, snooze, and completion controls are working properly.',
+      createdAt: nowIso,
+      dateStr: now.dateStr,
+      read: false,
+      deliveredChannels: ['in_app'],
+      targetSection: 'dashboard',
+    };
+    commitStateUpdate((prev) => ({
+      ...prev,
+      notifications: [testNotif, ...(prev.notifications || [])].slice(0, 60),
+    }));
+    setActiveNotifToast(testNotif);
+
+    if (getBrowserNotificationPermission() === 'granted') {
+      await showBrowserNotification({
+        title: testNotif.title,
+        body: testNotif.body,
+        tag: testNotif.dedupeKey,
+      });
+    }
+    const firstSub = stateRef.current.pushSubscriptions?.[0];
+    if (vapidStatus.configured && firstSub) {
+      await triggerServerTestPush(firstSub, {
+        title: testNotif.title,
+        body: testNotif.body,
+      });
+    }
+  };
 
   const navigateTo = (section: NavSection, subTab?: 'goals' | 'projects') => {
     setActiveSection(section);
@@ -984,7 +1347,7 @@ export default function App() {
   const renderSyncBadge = () => {
     if (syncStatus === 'syncing') {
       return (
-        <span className="inline-flex items-center gap-1.5 text-xs text-sky-400 whitespace-nowrap">
+        <span className="inline-flex items-center gap-1.5 text-xs text-slate-accent whitespace-nowrap">
           <Loader2 className="w-3.5 h-3.5 animate-spin" />
           <span className="hidden xl:inline">Saving...</span>
         </span>
@@ -992,7 +1355,7 @@ export default function App() {
     }
     if (syncStatus === 'offline') {
       return (
-        <span className="inline-flex items-center gap-1.5 text-xs text-amber-400 whitespace-nowrap">
+        <span className="inline-flex items-center gap-1.5 text-xs text-gold whitespace-nowrap">
           <CloudOff className="w-3.5 h-3.5" />
           <span className="hidden xl:inline">Offline</span>
         </span>
@@ -1015,7 +1378,7 @@ export default function App() {
               });
           }}
           title={syncErrorMsg || 'Retry sync'}
-          className="inline-flex items-center gap-1.5 text-xs text-rose-400 hover:text-rose-300 whitespace-nowrap"
+          className="inline-flex items-center gap-1.5 text-xs text-rose-muted hover:opacity-80 whitespace-nowrap"
         >
           <AlertCircle className="w-3.5 h-3.5" />
           <span className="hidden xl:inline">Retry</span>
@@ -1023,7 +1386,7 @@ export default function App() {
       );
     }
     return (
-      <span className="inline-flex items-center gap-1.5 text-xs text-emerald-400 whitespace-nowrap">
+      <span className="inline-flex items-center gap-1.5 text-xs text-slate-accent whitespace-nowrap">
         <Cloud className="w-3.5 h-3.5" />
         <span className="hidden xl:inline">Saved</span>
       </span>
@@ -1031,29 +1394,29 @@ export default function App() {
   };
 
   return (
-    <div className="min-h-screen bg-[#0A0A0C] text-[#F1F5F9] flex">
+    <div className="min-h-screen bg-app text-main flex overflow-x-clip">
       {/* Mobile Sidebar Overlay */}
       {mobileMenuOpen && (
         <div
-          className="fixed inset-0 z-40 bg-black/70 lg:hidden"
+          className="fixed inset-0 z-40 bg-[var(--overlay-backdrop)] lg:hidden"
           onClick={() => setMobileMenuOpen(false)}
         />
       )}
 
       {/* Collapsible Sidebar */}
       <aside
-        className={`fixed lg:sticky top-0 left-0 z-50 h-screen bg-[#0D0E12] border-r border-white/8 flex flex-col transition-all duration-200 shrink-0 ${
+        className={`fixed lg:sticky top-0 left-0 z-50 h-screen bg-card border-r border-subtle flex flex-col transition-all duration-200 shrink-0 ${
           mobileMenuOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'
         } ${sidebarCollapsed ? 'lg:w-[74px]' : 'w-[250px]'}`}
       >
         {/* Brand Block */}
-        <div className="h-16 px-4 border-b border-white/8 flex items-center justify-between gap-2">
+        <div className="h-16 px-4 border-b border-subtle flex items-center justify-between gap-2">
           {!sidebarCollapsed && (
             <div className="flex items-center gap-2.5 min-w-0">
-              <div className="w-7 h-7 rounded-lg bg-amber-500/15 border border-amber-500/35 flex items-center justify-center shrink-0">
+              <div className="w-7 h-7 rounded-lg bg-gold-soft border border-gold-border flex items-center justify-center shrink-0">
                 <svg
                   viewBox="0 0 24 24"
-                  className="w-4 h-4 text-amber-400"
+                  className="w-4 h-4 text-gold"
                   fill="none"
                   stroke="currentColor"
                   strokeWidth="2"
@@ -1064,10 +1427,10 @@ export default function App() {
                 </svg>
               </div>
               <div className="min-w-0">
-                <p className="text-xs font-bold tracking-wide text-white truncate">
+                <p className="text-xs font-bold tracking-wide text-main truncate">
                   PROJECT REBUILD ME
                 </p>
-                <p className="text-[11px] text-slate-400 truncate font-mono tabular-nums">
+                <p className="text-[11px] text-muted truncate font-mono tabular-nums">
                   Day {todayDay?.dayNumber ?? 1} of 30
                 </p>
               </div>
@@ -1076,7 +1439,7 @@ export default function App() {
           <button
             type="button"
             onClick={() => setSidebarCollapsed((c) => !c)}
-            className="hidden lg:inline-flex p-2 text-slate-400 hover:text-white hover:bg-white/5 rounded-lg transition-colors shrink-0"
+            className="hidden lg:inline-flex p-2 text-muted hover:text-main hover:bg-surface rounded-lg transition-colors shrink-0"
             aria-label={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
           >
             {sidebarCollapsed ? (
@@ -1088,7 +1451,7 @@ export default function App() {
           <button
             type="button"
             onClick={() => setMobileMenuOpen(false)}
-            className="lg:hidden p-2 text-slate-400 hover:text-white"
+            className="lg:hidden p-2 text-muted hover:text-main"
             aria-label="Close navigation menu"
           >
             <X className="w-4 h-4" />
@@ -1108,11 +1471,15 @@ export default function App() {
                 title={sidebarCollapsed ? item.label : undefined}
                 className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-colors whitespace-nowrap ${
                   isActive
-                    ? 'bg-amber-500/12 text-amber-300 border border-amber-500/25'
-                    : 'text-slate-400 hover:text-slate-100 hover:bg-white/[0.04] border border-transparent'
+                    ? 'bg-gold-soft text-gold border border-gold-border'
+                    : 'text-muted hover:text-main hover:bg-surface border border-transparent'
                 }`}
               >
-                <Icon className={`w-4 h-4 shrink-0 ${isActive ? 'text-amber-400' : ''}`} />
+                <Icon
+                  className={`w-4 h-4 shrink-0 ${
+                    isActive ? 'text-gold' : ''
+                  }`}
+                />
                 {!sidebarCollapsed && <span className="truncate">{item.label}</span>}
               </button>
             );
@@ -1120,7 +1487,7 @@ export default function App() {
         </nav>
 
         {/* Authenticated User Footer */}
-        <div className="p-3 border-t border-white/8">
+        <div className="p-3 border-t border-subtle">
           {!sidebarCollapsed ? (
             <div className="flex items-center justify-between gap-2 px-1">
               <div className="flex items-center gap-2.5 min-w-0">
@@ -1129,18 +1496,18 @@ export default function App() {
                     src={authUser.photoURL}
                     alt={state.profile.name}
                     referrerPolicy="no-referrer"
-                    className="w-8 h-8 rounded-full object-cover border border-white/10 shrink-0"
+                    className="w-8 h-8 rounded-full object-cover border border-subtle shrink-0"
                   />
                 ) : (
-                  <div className="w-8 h-8 rounded-full bg-amber-500/15 border border-amber-500/30 flex items-center justify-center text-xs font-semibold text-amber-300 shrink-0">
+                  <div className="w-8 h-8 rounded-full bg-gold-soft border border-gold-border flex items-center justify-center text-xs font-semibold text-gold shrink-0">
                     {(state.profile.name || 'S').charAt(0).toUpperCase()}
                   </div>
                 )}
                 <div className="min-w-0">
-                  <p className="text-xs font-medium text-white truncate">
+                  <p className="text-xs font-medium text-main truncate">
                     {state.profile.name}
                   </p>
-                  <p className="text-[11px] text-slate-400 truncate">
+                  <p className="text-[11px] text-muted truncate">
                     {authUser.email}
                   </p>
                 </div>
@@ -1150,7 +1517,7 @@ export default function App() {
                 onClick={handleLogout}
                 title="Sign Out"
                 aria-label="Sign Out"
-                className="p-1.5 text-slate-400 hover:text-white hover:bg-white/5 rounded-lg shrink-0"
+                className="p-1.5 text-muted hover:text-main hover:bg-surface rounded-lg shrink-0"
               >
                 <LogOut className="w-3.5 h-3.5" />
               </button>
@@ -1161,7 +1528,7 @@ export default function App() {
               onClick={handleLogout}
               title="Sign Out"
               aria-label="Sign Out"
-              className="w-full flex justify-center p-2 text-slate-400 hover:text-white rounded-lg hover:bg-white/5"
+              className="w-full flex justify-center p-2 text-muted hover:text-main rounded-lg hover:bg-surface"
             >
               <LogOut className="w-4 h-4" />
             </button>
@@ -1171,14 +1538,14 @@ export default function App() {
 
       {/* Main Content Area */}
       <div className="flex-1 min-w-0 flex flex-col">
-        {/* Top Bar: Logo Left · Primary Nav Center · Notifications/Profile/Settings Right */}
-        <header className="h-16 sticky top-0 z-30 bg-[#0A0A0C]/90 backdrop-blur-md border-b border-white/8 px-4 sm:px-6 flex items-center justify-between gap-4">
+        {/* Top Bar: Logo Left · Primary Nav Center · Actions + Theme + Profile Right */}
+        <header className="h-16 sticky top-0 z-30 bg-card/90 backdrop-blur-md border-b border-subtle px-3 sm:px-6 flex items-center justify-between gap-2 sm:gap-4">
           {/* Left: Mobile Drawer Button + Logo */}
-          <div className="flex items-center gap-3 min-w-0">
+          <div className="flex items-center gap-2 sm:gap-3 min-w-0">
             <button
               type="button"
               onClick={() => setMobileMenuOpen(true)}
-              className="lg:hidden p-2 text-slate-300 hover:text-white bg-white/5 rounded-lg"
+              className="lg:hidden min-w-[40px] min-h-[40px] inline-flex items-center justify-center p-2 text-muted hover:text-main bg-surface rounded-xl"
               aria-label="Open menu"
             >
               <Menu className="w-4 h-4" />
@@ -1188,10 +1555,10 @@ export default function App() {
               onClick={() => navigateTo('dashboard')}
               className="flex items-center gap-2.5 min-w-0 text-left"
             >
-              <span className="lg:hidden w-7 h-7 rounded-lg bg-amber-500/15 border border-amber-500/35 flex items-center justify-center shrink-0">
+              <span className="lg:hidden w-7 h-7 rounded-lg bg-gold-soft border border-gold-border flex items-center justify-center shrink-0">
                 <svg
                   viewBox="0 0 24 24"
-                  className="w-4 h-4 text-amber-400"
+                  className="w-4 h-4 text-gold"
                   fill="none"
                   stroke="currentColor"
                   strokeWidth="2"
@@ -1201,7 +1568,7 @@ export default function App() {
                   <circle cx="12" cy="12" r="2.2" fill="currentColor" />
                 </svg>
               </span>
-              <span className="text-sm font-semibold text-white truncate hidden sm:inline">
+              <span className="text-sm font-semibold text-main truncate hidden sm:inline">
                 Project Rebuild Me
               </span>
             </button>
@@ -1210,7 +1577,7 @@ export default function App() {
           {/* Center: Top Navigation Links */}
           <nav
             aria-label="Top Navigation"
-            className="hidden md:flex items-center gap-1 p-1 bg-[#111216] border border-white/8 rounded-xl"
+            className="hidden md:flex items-center gap-1 p-1 bg-surface border border-subtle rounded-xl"
           >
             {[
               {
@@ -1240,8 +1607,8 @@ export default function App() {
                 onClick={item.onClick}
                 className={`px-3.5 py-1.5 text-xs font-medium rounded-lg transition-colors whitespace-nowrap ${
                   item.active
-                    ? 'bg-amber-500/15 text-amber-300 border border-amber-500/30'
-                    : 'text-slate-400 hover:text-white border border-transparent'
+                    ? 'bg-card text-gold border border-gold-border shadow-xs dark:shadow-none'
+                    : 'text-muted hover:text-main border border-transparent'
                 }`}
               >
                 {item.label}
@@ -1249,15 +1616,25 @@ export default function App() {
             ))}
           </nav>
 
-          {/* Right: Sync + Notifications + Settings + User Profile + Add Task */}
-          <div className="flex items-center gap-2.5 sm:gap-3 shrink-0">
+          {/* Right: Sync + Add Task + Notifications + Settings + Theme Toggle + User Profile */}
+          <div className="flex items-center gap-1.5 sm:gap-2.5 shrink-0">
             {toastMessage && (
-              <span className="hidden xl:inline-flex items-center gap-1.5 text-xs text-emerald-400">
+              <span className="hidden xl:inline-flex items-center gap-1.5 text-xs text-slate-accent">
                 <CheckCircle2 className="w-3.5 h-3.5" />
                 {toastMessage}
               </span>
             )}
-            {renderSyncBadge()}
+            <span className="hidden sm:inline-flex">{renderSyncBadge()}</span>
+
+            <button
+              type="button"
+              onClick={() => openAddTaskForDate(effectiveDashboardDate, false)}
+              aria-label="Add Task"
+              className="min-w-[40px] min-h-[40px] sm:min-w-0 sm:min-h-[36px] inline-flex items-center justify-center gap-1.5 px-2.5 sm:px-3 py-2 text-xs font-semibold text-on-gold bg-gold hover:bg-gold-hover rounded-xl transition-colors whitespace-nowrap shrink-0"
+            >
+              <Plus className="w-4 h-4 sm:w-3.5 sm:h-3.5" />
+              <span className="hidden sm:inline">Add Task</span>
+            </button>
 
             {/* Notifications Dropdown */}
             <div className="relative" ref={notificationsRef}>
@@ -1268,42 +1645,134 @@ export default function App() {
                   setProfileMenuOpen(false);
                 }}
                 aria-label="Notifications"
-                className="relative p-2 text-slate-300 hover:text-white bg-[#111216] border border-white/10 rounded-xl transition-colors"
+                className="relative min-w-[40px] min-h-[40px] sm:min-w-0 sm:min-h-[36px] inline-flex items-center justify-center p-2 text-muted hover:text-main bg-surface border border-subtle rounded-xl transition-colors"
               >
                 <Bell className="w-4 h-4" />
-                {liveNotifications.length > 0 && (
-                  <span className="absolute -top-1 -right-1 min-w-[16px] h-4 px-1 rounded-full bg-amber-500 text-slate-950 text-[10px] font-bold flex items-center justify-center font-mono tabular-nums">
-                    {liveNotifications.length}
+                {unreadNotificationCount > 0 && (
+                  <span className="absolute -top-1 -right-1 min-w-[16px] h-4 px-1 rounded-full bg-gold text-on-gold text-[10px] font-bold flex items-center justify-center font-mono tabular-nums">
+                    {unreadNotificationCount}
                   </span>
                 )}
               </button>
 
               {notificationsOpen && (
-                <div className="absolute right-0 mt-2 w-80 max-w-[calc(100vw-2rem)] bg-[#111216] border border-white/12 rounded-2xl shadow-2xl overflow-hidden z-50">
-                  <div className="px-4 py-3 border-b border-white/8 flex items-center justify-between">
-                    <span className="text-xs font-semibold text-white">Notifications</span>
-                    <span className="text-[11px] font-mono tabular-nums text-slate-400">
-                      {liveNotifications.length} active
-                    </span>
+                <div className="absolute right-0 mt-2 w-96 max-w-[calc(100vw-1.5rem)] bg-card border border-subtle rounded-2xl shadow-xl dark:shadow-2xl overflow-hidden z-50">
+                  <div className="px-4 py-3 border-b border-subtle flex items-center justify-between gap-2">
+                    <div>
+                      <span className="text-xs font-semibold text-main block">
+                        Smart Notifications
+                      </span>
+                      <span className="text-[11px] font-mono tabular-nums text-muted">
+                        {unreadNotificationCount} unread · {visibleNotifications.length} active
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      {unreadNotificationCount > 0 && (
+                        <button
+                          type="button"
+                          onClick={handleMarkAllNotificationsRead}
+                          className="text-[11px] font-medium text-gold hover:underline"
+                        >
+                          Mark all read
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => navigateTo('settings')}
+                        className="text-[11px] text-muted hover:text-main"
+                      >
+                        Settings
+                      </button>
+                    </div>
                   </div>
-                  {liveNotifications.length === 0 ? (
-                    <p className="p-4 text-xs text-slate-400">
-                      No urgent alerts. Your schedule and habits are caught up.
+
+                  {visibleNotifications.length === 0 ? (
+                    <p className="p-4 text-xs text-muted">
+                      All caught up. Upcoming reminders and deadline alerts will appear here according to your timing settings.
                     </p>
                   ) : (
-                    <div className="divide-y divide-white/8 max-h-72 overflow-y-auto">
-                      {liveNotifications.map((n) => (
-                        <button
+                    <div className="divide-y divide-subtle max-h-96 overflow-y-auto">
+                      {visibleNotifications.map((n) => (
+                        <div
                           key={n.id}
-                          type="button"
-                          onClick={() => navigateTo(n.targetSection)}
-                          className="w-full text-left px-4 py-3 hover:bg-white/[0.04] transition-colors"
+                          className={`px-4 py-3 space-y-2 ${
+                            !n.read ? 'bg-gold-soft/30' : ''
+                          }`}
                         >
-                          <p className="text-xs font-medium text-white">{n.title}</p>
-                          <p className="text-[11px] text-slate-400 mt-0.5 line-clamp-2">
-                            {n.detail}
-                          </p>
-                        </button>
+                          <div className="flex items-start justify-between gap-2">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                commitStateUpdate((prev) => ({
+                                  ...prev,
+                                  notifications: (prev.notifications || []).map((x) =>
+                                    x.id === n.id ? { ...x, read: true } : x
+                                  ),
+                                }));
+                                if (n.dateStr && state.days[n.dateStr]) setSelectedDate(n.dateStr);
+                                navigateTo(n.targetSection || 'dashboard');
+                              }}
+                              className="text-left min-w-0 flex-1"
+                            >
+                              <p className="text-xs font-semibold text-main">{n.title}</p>
+                              <p className="text-[11px] text-muted mt-0.5">{n.body}</p>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleDismissNotification(n.id)}
+                              className="p-1 text-muted hover:text-main shrink-0"
+                              aria-label="Dismiss notification"
+                            >
+                              <X className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            {n.taskId && (
+                              <>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    applyNotificationAction({
+                                      action: 'start',
+                                      taskId: n.taskId,
+                                      dateStr: n.dateStr,
+                                      notificationId: n.id,
+                                    });
+                                    setNotificationsOpen(false);
+                                  }}
+                                  className="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-gold text-on-gold text-[10px] font-semibold"
+                                >
+                                  <Play className="w-2.5 h-2.5 fill-current" />
+                                  Start
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleNotificationCompleteTask(n)}
+                                  className="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-slate-soft border border-slate-border text-slate-accent text-[10px] font-semibold"
+                                >
+                                  <Check className="w-2.5 h-2.5" />
+                                  Mark Done
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleSnoozeNotification(n, 10)}
+                                  className="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-surface border border-subtle text-muted hover:text-main text-[10px]"
+                                >
+                                  <AlarmClock className="w-2.5 h-2.5" />
+                                  Snooze 10m
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleNotificationReschedule(n)}
+                                  className="px-2 py-1 rounded-md bg-surface border border-subtle text-muted hover:text-main text-[10px]"
+                                >
+                                  Reschedule
+                                </button>
+                              </>
+                            )}
+                          </div>
+                        </div>
                       ))}
                     </div>
                   )}
@@ -1317,14 +1786,17 @@ export default function App() {
               onClick={() => navigateTo('settings')}
               aria-label="Settings"
               title="Settings"
-              className={`p-2 rounded-xl border transition-colors ${
+              className={`min-w-[40px] min-h-[40px] sm:min-w-0 sm:min-h-[36px] inline-flex items-center justify-center p-2 rounded-xl border transition-colors ${
                 activeSection === 'settings'
-                  ? 'bg-amber-500/15 border-amber-500/35 text-amber-300'
-                  : 'bg-[#111216] border-white/10 text-slate-300 hover:text-white'
+                  ? 'bg-gold-soft border-gold-border text-gold'
+                  : 'bg-surface border-subtle text-muted hover:text-main'
               }`}
             >
               <Settings className="w-4 h-4" />
             </button>
+
+            {/* Theme Selector immediately beside User Profile */}
+            <ThemeToggle variant="dropdown" />
 
             {/* User Profile Dropdown */}
             <div className="relative" ref={profileMenuRef}>
@@ -1335,7 +1807,7 @@ export default function App() {
                   setNotificationsOpen(false);
                 }}
                 aria-label="User profile menu"
-                className="flex items-center gap-2 pl-1.5 pr-2 py-1 bg-[#111216] border border-white/10 hover:border-white/20 rounded-xl transition-colors"
+                className="min-h-[40px] sm:min-h-[36px] flex items-center gap-2 px-1.5 sm:pr-2 py-1 bg-surface border border-subtle hover:border-gold-border rounded-xl transition-colors"
               >
                 {authUser.photoURL ? (
                   <img
@@ -1345,20 +1817,20 @@ export default function App() {
                     className="w-6 h-6 rounded-full object-cover"
                   />
                 ) : (
-                  <div className="w-6 h-6 rounded-full bg-amber-500/20 text-amber-300 flex items-center justify-center text-[11px] font-semibold">
+                  <div className="w-6 h-6 rounded-full bg-gold-soft text-gold flex items-center justify-center text-[11px] font-semibold">
                     {(state.profile.name || 'S').charAt(0).toUpperCase()}
                   </div>
                 )}
-                <ChevronDown className="w-3.5 h-3.5 text-slate-400 hidden sm:block" />
+                <ChevronDown className="w-3.5 h-3.5 text-muted hidden sm:block" />
               </button>
 
               {profileMenuOpen && (
-                <div className="absolute right-0 mt-2 w-60 bg-[#111216] border border-white/12 rounded-2xl shadow-2xl overflow-hidden z-50">
-                  <div className="px-4 py-3 border-b border-white/8">
-                    <p className="text-xs font-semibold text-white truncate">
+                <div className="absolute right-0 mt-2 w-60 bg-card border border-subtle rounded-2xl shadow-xl dark:shadow-2xl overflow-hidden z-50">
+                  <div className="px-4 py-3 border-b border-subtle">
+                    <p className="text-xs font-semibold text-main truncate">
                       {state.profile.name}
                     </p>
-                    <p className="text-[11px] text-slate-400 truncate mt-0.5">
+                    <p className="text-[11px] text-muted truncate mt-0.5">
                       {authUser.email}
                     </p>
                   </div>
@@ -1366,23 +1838,23 @@ export default function App() {
                     <button
                       type="button"
                       onClick={() => navigateTo('coach')}
-                      className="w-full flex items-center gap-2 px-3 py-2 text-xs text-slate-200 hover:bg-white/5 rounded-lg text-left"
+                      className="w-full flex items-center gap-2 px-3 py-2 text-xs text-main hover:bg-surface rounded-lg text-left"
                     >
-                      <Bot className="w-3.5 h-3.5 text-amber-400" />
+                      <Bot className="w-3.5 h-3.5 text-gold" />
                       AI Life Coach
                     </button>
                     <button
                       type="button"
                       onClick={() => navigateTo('settings')}
-                      className="w-full flex items-center gap-2 px-3 py-2 text-xs text-slate-200 hover:bg-white/5 rounded-lg text-left"
+                      className="w-full flex items-center gap-2 px-3 py-2 text-xs text-main hover:bg-surface rounded-lg text-left"
                     >
-                      <Settings className="w-3.5 h-3.5 text-slate-400" />
+                      <Settings className="w-3.5 h-3.5 text-muted" />
                       Profile &amp; Settings
                     </button>
                     <button
                       type="button"
                       onClick={handleLogout}
-                      className="w-full flex items-center gap-2 px-3 py-2 text-xs text-rose-300 hover:bg-rose-500/10 rounded-lg text-left"
+                      className="w-full flex items-center gap-2 px-3 py-2 text-xs text-rose-muted hover:bg-rose-soft rounded-lg text-left"
                     >
                       <LogOut className="w-3.5 h-3.5" />
                       Sign Out
@@ -1391,20 +1863,29 @@ export default function App() {
                 </div>
               )}
             </div>
-
-            <button
-              type="button"
-              onClick={() => openAddTaskForDate(effectiveDashboardDate, false)}
-              className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-slate-950 bg-amber-500 hover:bg-amber-400 rounded-xl transition-colors whitespace-nowrap shrink-0"
-            >
-              <Plus className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">Add Task</span>
-            </button>
           </div>
         </header>
 
         {/* Active View Viewport */}
-        <main className="flex-1 p-4 sm:p-6 lg:p-8 max-w-[1400px] w-full mx-auto">
+        <main className="flex-1 p-4 sm:p-6 lg:p-8 max-w-[1400px] w-full mx-auto min-w-0">
+          {state.profile.onboardingDraft && (
+            <div className="mb-5 p-3.5 rounded-xl bg-gold-soft border border-gold-border flex flex-wrap items-center justify-between gap-3">
+              <p className="text-xs text-main">
+                You have an unfinished personalized timetable setup draft.
+              </p>
+              <button
+                type="button"
+                onClick={() => {
+                  setOnboardingMode('onboarding');
+                  setTimetableBuilderOpen(true);
+                }}
+                className="px-3 py-1.5 text-xs font-semibold text-on-gold bg-gold hover:bg-gold-hover rounded-lg"
+              >
+                Finish Setup
+              </button>
+            </div>
+          )}
+
           {activeSection === 'dashboard' && (
             <DashboardView
               state={state}
@@ -1447,6 +1928,10 @@ export default function App() {
               onOpenEditTask={(task) => openEditTaskForDate(selectedDate, task)}
               onDeleteTask={(task) => handleDeleteTask(selectedDate, task)}
               onOpenSmartPlan={() => handleOpenSmartPlan()}
+              onOpenTimetableBuilder={() => {
+                setOnboardingMode('builder');
+                setTimetableBuilderOpen(true);
+              }}
             />
           )}
 
@@ -1633,12 +2118,22 @@ export default function App() {
                   return { ...prev, days: updatedDays };
                 });
               }}
+              onOpenTimetableBuilder={() => {
+                setOnboardingMode('builder');
+                setTimetableBuilderOpen(true);
+              }}
               onRerunOnboarding={() =>
                 commitStateUpdate((prev) => ({
                   ...prev,
                   profile: { ...prev.profile, onboardingCompleted: false },
                 }))
               }
+              notificationPermission={notificationPermission}
+              vapidStatus={vapidStatus}
+              onRequestNotificationPermission={handleRequestNotificationPermission}
+              onEnableWebPush={handleEnableWebPush}
+              onDisableWebPush={handleDisableWebPush}
+              onSendTestNotification={handleSendTestNotification}
               onExportJson={() => {
                 const json = storageRepo.exportBackupJson(state, authUser.uid);
                 const blob = new Blob([json], { type: 'application/json' });
@@ -1747,6 +2242,87 @@ export default function App() {
         onMigrate={handleMigrateLocalToCloud}
         onSkipKeepCloud={handleSkipMigration}
       />
+
+      {/* Interactive Floating Notification Toast */}
+      {activeNotifToast && (
+        <div
+          role="status"
+          className="fixed bottom-4 right-4 z-50 w-88 max-w-[calc(100vw-2rem)] bg-card border border-gold-border rounded-2xl shadow-2xl p-4 space-y-2.5"
+        >
+          <div className="flex items-start justify-between gap-2">
+            <div className="flex items-start gap-2.5 min-w-0">
+              <div className="p-1.5 rounded-lg bg-gold-soft border border-gold-border text-gold shrink-0">
+                <Bell className="w-3.5 h-3.5" />
+              </div>
+              <div className="min-w-0">
+                <p className="text-xs font-semibold text-main truncate">
+                  {activeNotifToast.title}
+                </p>
+                <p className="text-[11px] text-muted mt-0.5">
+                  {activeNotifToast.body}
+                </p>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => setActiveNotifToast(null)}
+              className="p-1 text-muted hover:text-main shrink-0"
+              aria-label="Close notification popup"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-1.5">
+            {activeNotifToast.taskId ? (
+              <>
+                <button
+                  type="button"
+                  onClick={() => {
+                    applyNotificationAction({
+                      action: 'start',
+                      taskId: activeNotifToast.taskId,
+                      dateStr: activeNotifToast.dateStr,
+                      notificationId: activeNotifToast.id,
+                    });
+                    setActiveNotifToast(null);
+                  }}
+                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-gold text-on-gold text-[11px] font-semibold"
+                >
+                  <Play className="w-3 h-3 fill-current" />
+                  Start
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleNotificationCompleteTask(activeNotifToast)}
+                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-slate-soft border border-slate-border text-slate-accent text-[11px] font-semibold"
+                >
+                  <Check className="w-3 h-3" />
+                  Mark Done
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleSnoozeNotification(activeNotifToast, 10)}
+                  className="px-2.5 py-1 rounded-lg bg-surface border border-subtle text-[11px] text-muted hover:text-main"
+                >
+                  Snooze 10m
+                </button>
+              </>
+            ) : (
+              <button
+                type="button"
+                onClick={() => {
+                  navigateTo(activeNotifToast.targetSection || 'dashboard');
+                  setActiveNotifToast(null);
+                }}
+                className="px-2.5 py-1 rounded-lg bg-gold text-on-gold text-[11px] font-semibold"
+              >
+                View
+              </button>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Start New 30-Day Plan Confirm Dialog */}
       <ConfirmDialog
