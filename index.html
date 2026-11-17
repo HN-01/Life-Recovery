@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en" class="dark">
+<html lang="en">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -9,11 +9,37 @@
     <meta property="og:description" content="Plan your days. Build your discipline. Rebuild your life." />
     <meta property="og:type" content="website" />
     <meta name="twitter:card" content="summary_large_image" />
+    <script>
+      (function () {
+        try {
+          var pref = localStorage.getItem('rebuild_me_theme');
+          var prefersDark =
+            window.matchMedia &&
+            window.matchMedia('(prefers-color-scheme: dark)').matches;
+          var isDark =
+            pref === 'dark' ||
+            (pref === 'system' && prefersDark) ||
+            (!pref || (pref !== 'light' && pref !== 'dark' && pref !== 'system'));
+          var root = document.documentElement;
+          if (isDark) {
+            root.classList.add('dark');
+            root.style.colorScheme = 'dark';
+            root.dataset.theme = 'dark';
+          } else {
+            root.classList.remove('dark');
+            root.style.colorScheme = 'light';
+            root.dataset.theme = 'light';
+          }
+        } catch (e) {
+          document.documentElement.classList.add('dark');
+        }
+      })();
+    </script>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400..700;1,9..40,400..700&family=JetBrains+Mono:wght@400;500;600&family=Plus+Jakarta+Sans:wght@500;600;700&display=swap" rel="stylesheet" />
   </head>
-  <body class="bg-[#0A0A0C] text-[#F1F5F9] antialiased selection:bg-amber-500/30 selection:text-white">
+  <body class="bg-[#F6F7F9] dark:bg-[#0A0A0C] text-slate-900 dark:text-[#F1F5F9] antialiased selection:bg-amber-500/30 selection:text-slate-900 dark:selection:text-white">
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>

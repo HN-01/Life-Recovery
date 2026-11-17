@@ -374,7 +374,10 @@ export function AICoachView({
 
     try {
       const data = await fetchCoachWithRetry<{
+        success?: boolean;
+        response?: string;
         reply?: string;
+        conversationId?: string;
         suggestedChanges?: Array<{
           targetDate?: string;
           action?: string;
@@ -399,6 +402,7 @@ export function AICoachView({
         url: '/api/coach/chat',
         signal: controller.signal,
         body: {
+          conversationId: params.convId,
           userMessage: params.promptText,
           conversationHistory: [
             ...params.historyBeforeUserMsg,
@@ -452,7 +456,7 @@ export function AICoachView({
       const assistantMsg: CoachMessage = {
         id: params.replaceAssistantMsgId || createId('msg'),
         role: 'assistant',
-        content: data.reply || 'No response generated.',
+        content: data.response || data.reply || 'No response generated.',
         createdAt: new Date().toISOString(),
         suggestedChanges: mappedChanges.length > 0 ? mappedChanges : undefined,
         suggestedGoalActions: mappedGoalActions.length > 0 ? mappedGoalActions : undefined,

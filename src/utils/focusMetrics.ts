@@ -336,6 +336,110 @@ export function computeFocusStability(
   };
 }
 
+export interface DeduplicatedTasksResult {
+  tasks: RoutineTask[];
+  duplicateCount: number;
+  duplicateTitles: string[];
+}
+
+const STATUS_PRECEDENCE: Record<RoutineTask['status'], number> = {
+  completed: 4,
+  skipped: 3,
+  missed: 2,
+  pending: 1,
+};
+
+function normalizeTaskTitle(title: string): string {
+  return title.trim().replace(/\s+/g, ' ').toLowerCase();
+}
+
+/**
+ * Deduplicates tasks retrieved from Firestore by exact task ID and canonical
+ * schedule signature (normalized title + startTime + endTime), preserving
+ * completed status and sorting chronologically without mutating Firestore.
+ */
+export function deduplicateDayTasks(tasks: RoutineTask[]): DeduplicatedTasksResult {
+  if (!Array.isArray(tasks) || tasks.length === 0) {
+    return { tasks: [], duplicateCount: 0, duplicateTitles: [] };
+  }
+
+  const duplicateTitleSet = new Set<string>();
+  let duplicateCount = 0;
+
+  // Pass 1: Collapse duplicate IDs (keeping highest status precedence)
+  const idOrder: string[] = [];
+  const byId = new Map<string, RoutineTask>();
+  const noIdTasks: RoutineTask[] = [];
+
+  for (const rawTask of tasks) {
+    if (!rawTask || typeof rawTask.title !== 'string') continue;
+    if (!rawTask.id) {
+      noIdTasks.push(rawTask);
+      continue;
+    }
+    const existing = byId.get(rawTask.id);
+    if (!existing) {
+      idOrder.push(rawTask.id);
+      byId.set(rawTask.id, rawTask);
+    } else {
+      duplicateCount++;
+      duplicateTitleSet.add(rawTask.title.trim().replace(/\s+/g, ' '));
+      if (STATUS_PRECEDENCE[rawTask.status] > STATUS_PRECEDENCE[existing.status]) {
+        byId.set(rawTask.id, {
+          ...rawTask,
+          description: rawTask.description || existing.description,
+          goalId: rawTask.goalId || existing.goalId,
+        });
+      }
+    }
+  }
+
+  const pass1Tasks = [...idOrder.map((id) => byId.get(id)!), ...noIdTasks];
+
+  // Pass 2: Collapse duplicate schedule signatures (normalized title + startTime + endTime)
+  const signatureOrder: string[] = [];
+  const bySignature = new Map<string, RoutineTask>();
+
+  for (const task of pass1Tasks) {
+    const sig = `${normalizeTaskTitle(task.title)}::${task.startTime}::${task.endTime}`;
+    const existing = bySignature.get(sig);
+    if (!existing) {
+      signatureOrder.push(sig);
+      bySignature.set(sig, task);
+    } else {
+      duplicateCount++;
+      duplicateTitleSet.add(task.title.trim().replace(/\s+/g, ' '));
+      const keepIncoming =
+        STATUS_PRECEDENCE[task.status] > STATUS_PRECEDENCE[existing.status] ||
+        (STATUS_PRECEDENCE[task.status] === STATUS_PRECEDENCE[existing.status] &&
+          (task.description || '').length > (existing.description || '').length);
+      if (keepIncoming) {
+        bySignature.set(sig, {
+          ...task,
+          title: task.title.trim().replace(/\s+/g, ' '),
+          description: task.description || existing.description,
+          goalId: task.goalId || existing.goalId,
+        });
+      }
+    }
+  }
+
+  const deduped = signatureOrder
+    .map((sig) => bySignature.get(sig)!)
+    .sort(
+      (a, b) =>
+        timeToMinutes(a.startTime) - timeToMinutes(b.startTime) ||
+        timeToMinutes(a.endTime) - timeToMinutes(b.endTime) ||
+        a.title.localeCompare(b.title)
+    );
+
+  return {
+    tasks: deduped,
+    duplicateCount,
+    duplicateTitles: Array.from(duplicateTitleSet),
+  };
+}
+
 export interface TimelinePositionedTask {
   task: RoutineTask;
   startMin: number;
@@ -362,6 +466,7 @@ export function assignTimelineLanes(
   windowStartMin = 480,
   windowEndMin = 1200
 ): TimelineLayoutResult {
+  const { tasks: cleanTasks } = deduplicateDayTasks(tasks);
   const windowSpan = Math.max(60, windowEndMin - windowStartMin);
   const inWindow: Array<{
     task: RoutineTask;
@@ -372,7 +477,7 @@ export function assignTimelineLanes(
   }> = [];
   const outsideWindowTasks: RoutineTask[] = [];
 
-  for (const task of tasks) {
+  for (const task of cleanTasks) {
     const s = timeToMinutes(task.startTime);
     let e = timeToMinutes(task.endTime);
     if (e <= s) e += 1440;
@@ -418,7 +523,7 @@ export function assignTimelineLanes(
 
     const leftPct = ((item.clippedStartMin - windowStartMin) / windowSpan) * 100;
     const rawWidthPct = ((item.clippedEndMin - item.clippedStartMin) / windowSpan) * 100;
-    const widthPct = Math.max(5.5, Math.min(100 - leftPct, rawWidthPct));
+    const widthPct = Math.max(0.75, Math.min(100 - leftPct, rawWidthPct));
 
     positioned.push({
       task: item.task,

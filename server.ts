@@ -1,5 +1,6 @@
 import 'dotenv/config';
 import express from 'express';
+import http from 'http';
 import path from 'path';
 import { createServer as createViteServer } from 'vite';
 import { GoogleGenAI, ThinkingLevel, Type } from '@google/genai';
@@ -30,7 +31,7 @@ function getConfiguredFallbackModel(): string | null {
 }
 
 const FALLBACK_MODEL = getConfiguredFallbackModel();
-const GEMINI_TIMEOUT_MS = 28000;
+const GEMINI_TIMEOUT_MS = 45000;
 
 function getGeminiClient(): GoogleGenAI {
   const apiKey = process.env.GEMINI_API_KEY?.trim();
@@ -52,9 +53,21 @@ function getGeminiClient(): GoogleGenAI {
 
 interface ClassifiedGeminiError {
   httpStatus: number;
+  upstreamStatus?: number;
   code: string;
   retryable: boolean;
   publicMessage: string;
+}
+
+// The AI Studio Nginx reverse proxy uses `proxy_intercept_errors on` with
+// `error_page 403 = /forbidden.html` and `error_page 502 503 504 = /warmup.html`.
+// Returning 403/502/503/504 from Express causes Nginx to discard our JSON body
+// and return HTTP 200 HTML. Map intercepted proxy codes to safe JSON-preserving codes.
+function getSafeApiErrorStatus(status: number): number {
+  if (status === 403 || status === 502 || status === 503 || status === 504) {
+    return 500;
+  }
+  return status >= 400 && status < 600 ? status : 500;
 }
 
 function classifyGeminiError(error: unknown): ClassifiedGeminiError {
@@ -115,7 +128,8 @@ function classifyGeminiError(error: unknown): ClassifiedGeminiError {
 
   if (isUnavailable) {
     return {
-      httpStatus: 503,
+      httpStatus: 500,
+      upstreamStatus: rawStatus || 503,
       code: 'TEMPORARY_UNAVAILABLE',
       retryable: true,
       publicMessage: 'AI Coach is temporarily unavailable. Please try again shortly.',
@@ -130,6 +144,7 @@ function classifyGeminiError(error: unknown): ClassifiedGeminiError {
   if (isRateLimited) {
     return {
       httpStatus: 429,
+      upstreamStatus: 429,
       code: 'RATE_LIMITED',
       retryable: true,
       publicMessage: 'AI Coach is temporarily busy due to rate limits. Please try again shortly.',
@@ -138,7 +153,8 @@ function classifyGeminiError(error: unknown): ClassifiedGeminiError {
 
   if (rawStatus === 401 || rawStatus === 403 || rawCode === 'PERMISSION_DENIED') {
     return {
-      httpStatus: rawStatus || 403,
+      httpStatus: rawStatus === 401 ? 401 : 500,
+      upstreamStatus: rawStatus || 403,
       code: 'AUTH_ERROR',
       retryable: false,
       publicMessage: 'AI Coach authentication failed on the server.',
@@ -148,6 +164,7 @@ function classifyGeminiError(error: unknown): ClassifiedGeminiError {
   if (rawStatus === 400 || rawStatus === 404) {
     return {
       httpStatus: rawStatus,
+      upstreamStatus: rawStatus,
       code: 'BAD_REQUEST',
       retryable: false,
       publicMessage: 'AI Coach request could not be processed.',
@@ -156,6 +173,7 @@ function classifyGeminiError(error: unknown): ClassifiedGeminiError {
 
   return {
     httpStatus: 500,
+    upstreamStatus: rawStatus,
     code: 'INTERNAL_ERROR',
     retryable: false,
     publicMessage: 'Failed to reach AI Coach service. Please try again.',
@@ -262,22 +280,40 @@ async function startServer() {
   const app = express();
   app.use(express.json({ limit: '5mb' }));
 
+  // Explicitly ensure every /api/* response declares application/json
+  app.use('/api', (_req, res, next) => {
+    res.setHeader('Content-Type', 'application/json; charset=utf-8');
+    next();
+  });
+
   app.get('/api/health', (_req, res) => {
-    res.json({ ok: true, service: 'project-rebuild-me' });
+    res.json({ success: true, ok: true, service: 'project-rebuild-me' });
   });
 
   // 1. AI Life Coach Chat Endpoint
   app.post('/api/coach/chat', async (req, res) => {
     try {
-      const { userMessage, conversationHistory, contextSnapshot, allowFallback } = req.body as {
+      const {
+        userMessage,
+        conversationHistory,
+        contextSnapshot,
+        conversationId,
+        allowFallback,
+      } = req.body as {
         userMessage: string;
         conversationHistory?: Array<{ role: 'user' | 'assistant'; content: string }>;
         contextSnapshot: unknown;
+        conversationId?: string;
         allowFallback?: boolean;
       };
 
       if (!userMessage || typeof userMessage !== 'string') {
-        res.status(400).json({ error: 'userMessage is required.', retryable: false });
+        res.status(400).json({
+          success: false,
+          error: 'userMessage is required.',
+          code: 'BAD_REQUEST',
+          retryable: false,
+        });
         return;
       }
 
@@ -357,8 +393,14 @@ Instructions:
         },
       });
 
+      const replyText = result.parsed.reply || 'No response generated.';
       res.json({
-        reply: result.parsed.reply || 'No response generated.',
+        success: true,
+        response: replyText,
+        reply: replyText,
+        ...(typeof conversationId === 'string' && conversationId.trim()
+          ? { conversationId: conversationId.trim() }
+          : {}),
         suggestedChanges: Array.isArray(result.parsed.suggestedChanges)
           ? result.parsed.suggestedChanges
           : [],
@@ -371,10 +413,12 @@ Instructions:
       });
     } catch (error) {
       const classified = classifyGeminiError(error);
-      res.status(classified.httpStatus).json({
+      res.status(getSafeApiErrorStatus(classified.httpStatus)).json({
+        success: false,
         error: classified.publicMessage,
         code: classified.code,
         retryable: classified.retryable,
+        ...(classified.upstreamStatus ? { upstreamStatus: classified.upstreamStatus } : {}),
       });
     }
   });
@@ -438,6 +482,7 @@ Generate a structured daily review based strictly on the recorded tasks and time
       });
 
       res.json({
+        success: true,
         ...result.parsed,
         modelUsed: result.modelUsed,
         usedFallback: result.usedFallback,
@@ -445,10 +490,12 @@ Generate a structured daily review based strictly on the recorded tasks and time
       });
     } catch (error) {
       const classified = classifyGeminiError(error);
-      res.status(classified.httpStatus).json({
+      res.status(getSafeApiErrorStatus(classified.httpStatus)).json({
+        success: false,
         error: classified.publicMessage,
         code: classified.code,
         retryable: classified.retryable,
+        ...(classified.upstreamStatus ? { upstreamStatus: classified.upstreamStatus } : {}),
       });
     }
   });
@@ -497,6 +544,7 @@ Do not invent numbers. Use the exact percentages and hour counts supplied.`;
       });
 
       res.json({
+        success: true,
         ...result.parsed,
         modelUsed: result.modelUsed,
         usedFallback: result.usedFallback,
@@ -504,10 +552,12 @@ Do not invent numbers. Use the exact percentages and hour counts supplied.`;
       });
     } catch (error) {
       const classified = classifyGeminiError(error);
-      res.status(classified.httpStatus).json({
+      res.status(getSafeApiErrorStatus(classified.httpStatus)).json({
+        success: false,
         error: classified.publicMessage,
         code: classified.code,
         retryable: classified.retryable,
+        ...(classified.upstreamStatus ? { upstreamStatus: classified.upstreamStatus } : {}),
       });
     }
   });
@@ -585,6 +635,7 @@ Provide a concise 2-sentence strategic summary note explaining why these adjustm
   // Ensure unmatched /api/* routes return JSON 404 instead of falling through to HTML SPA fallback
   app.use('/api', (req, res) => {
     res.status(404).json({
+      success: false,
       error: `API endpoint not found: ${req.method} ${req.originalUrl}`,
       code: 'API_NOT_FOUND',
       retryable: false,
@@ -600,6 +651,7 @@ Provide a concise 2-sentence strategic summary note explaining why these adjustm
       res: express.Response,
       _next: express.NextFunction
     ) => {
+      res.setHeader('Content-Type', 'application/json; charset=utf-8');
       const errObj = (err && typeof err === 'object' ? err : {}) as Record<string, unknown>;
       const status =
         typeof errObj.status === 'number'
@@ -610,6 +662,7 @@ Provide a concise 2-sentence strategic summary note explaining why these adjustm
       const errType = String(errObj.type ?? '');
       if (errType === 'entity.parse.failed' || err instanceof SyntaxError) {
         res.status(400).json({
+          success: false,
           error: 'Invalid JSON request body.',
           code: 'INVALID_JSON_BODY',
           retryable: false,
@@ -618,6 +671,7 @@ Provide a concise 2-sentence strategic summary note explaining why these adjustm
       }
       if (errType === 'entity.too.large' || status === 413) {
         res.status(413).json({
+          success: false,
           error: 'Request payload is too large for the AI Coach API.',
           code: 'PAYLOAD_TOO_LARGE',
           retryable: false,
@@ -625,7 +679,8 @@ Provide a concise 2-sentence strategic summary note explaining why these adjustm
         return;
       }
       const classified = classifyGeminiError(err);
-      res.status(status >= 400 && status < 600 ? status : classified.httpStatus).json({
+      res.status(getSafeApiErrorStatus(status >= 400 && status < 600 ? status : classified.httpStatus)).json({
+        success: false,
         error: classified.publicMessage,
         code: classified.code,
         retryable: classified.retryable,
@@ -633,11 +688,17 @@ Provide a concise 2-sentence strategic summary note explaining why these adjustm
     }
   );
 
+  const httpServer = http.createServer(app);
+
   // Mount Vite middleware in dev or static build in production
   const isProd = process.env.NODE_ENV === 'production';
   if (!isProd) {
     const vite = await createViteServer({
-      server: { middlewareMode: true },
+      server: {
+        middlewareMode: true,
+        allowedHosts: true,
+        ws: { server: httpServer },
+      },
       appType: 'spa',
     });
     app.use(vite.middlewares);
@@ -649,7 +710,7 @@ Provide a concise 2-sentence strategic summary note explaining why these adjustm
     });
   }
 
-  app.listen(PORT, '0.0.0.0', () => {
+  httpServer.listen(PORT, '0.0.0.0', () => {
     console.log(`PROJECT REBUILD ME server listening on http://0.0.0.0:${PORT}`);
   });
 }

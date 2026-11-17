@@ -128,6 +128,9 @@ export async function fetchCoachWithRetry<TResponse>(options: {
       });
 
       const contentType = (resp.headers.get('content-type') || '').toLowerCase();
+      const isHtmlOrPlainText =
+        contentType.includes('text/html') || contentType.includes('text/plain');
+      const isJsonContentType = contentType.includes('application/json');
       const rawText = await resp.text();
       const trimmedText = rawText.trim();
       const looksLikeHtml =
@@ -135,10 +138,23 @@ export async function fetchCoachWithRetry<TResponse>(options: {
         trimmedText.startsWith('<!DOCTYPE') ||
         trimmedText.startsWith('<html') ||
         trimmedText.startsWith('<');
-      const isJsonContentType = contentType.includes('application/json');
 
-      if (!isJsonContentType || looksLikeHtml) {
+      if (isHtmlOrPlainText || !isJsonContentType || looksLikeHtml) {
+        console.error(
+          '[AI Coach API] Expected application/json response but received non-JSON payload.',
+          {
+            url,
+            status: resp.status,
+            contentType: contentType || '(missing)',
+            body: rawText,
+          }
+        );
+
+        const isWarmupPage =
+          rawText.includes('Starting Server...') ||
+          rawText.includes('warmup_failed_sent');
         const isTransientGatewayStatus =
+          isWarmupPage ||
           resp.status === 502 ||
           resp.status === 503 ||
           resp.status === 504 ||
@@ -147,7 +163,7 @@ export async function fetchCoachWithRetry<TResponse>(options: {
         const nonJsonErr = new AICoachRequestError(
           isTransientGatewayStatus
             ? UNAVAILABLE_FINAL_MESSAGE
-            : `AI Coach API returned an unexpected non-JSON response (HTTP ${resp.status}). Ensure the backend server is handling /api routes.`,
+            : `AI Coach API returned an unexpected non-JSON response (HTTP ${resp.status}, Content-Type: ${contentType || 'missing'}). Ensure the backend server is handling /api routes.`,
           {
             status: resp.status,
             code: isTransientGatewayStatus
@@ -187,7 +203,7 @@ export async function fetchCoachWithRetry<TResponse>(options: {
         }
 
         if (parsedValidJson) {
-          if (resp.ok) {
+          if (resp.ok && payload.success !== false) {
             return payload as TResponse;
           }
 

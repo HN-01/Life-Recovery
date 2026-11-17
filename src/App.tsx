@@ -80,6 +80,7 @@ import {
   getCurrentChallengeDay,
 } from './utils/metrics';
 import { buildDeterministicSmartPlan } from './utils/smartScheduler';
+import { deduplicateDayTasks } from './utils/focusMetrics';
 import { AuthGate } from './components/AuthGate';
 import { MigrationModal } from './components/MigrationModal';
 import { OnboardingWizard } from './components/OnboardingWizard';
@@ -561,6 +562,31 @@ export default function App() {
         },
       };
     });
+  };
+
+  const handleDeduplicateDayTasks = (dateStr: string) => {
+    const targetDay = stateRef.current.days[dateStr];
+    if (!targetDay) return;
+    const { duplicateCount } = deduplicateDayTasks(targetDay.tasks);
+    if (duplicateCount === 0) return;
+    commitStateUpdate((prev) => {
+      const day = prev.days[dateStr];
+      if (!day) return prev;
+      const res = deduplicateDayTasks(day.tasks);
+      return {
+        ...prev,
+        days: {
+          ...prev.days,
+          [dateStr]: {
+            ...day,
+            tasks: res.tasks,
+          },
+        },
+      };
+    });
+    showToast(
+      `Removed ${duplicateCount} duplicate task ${duplicateCount === 1 ? 'record' : 'records'} from Firestore.`
+    );
   };
 
   const openAddTaskForDate = (dateStr: string, isBreak = false) => {
@@ -1403,6 +1429,7 @@ export default function App() {
               onOpenDailyReview={() => setDailyReviewOpen(true)}
               onOpenSmartPlan={() => handleOpenSmartPlan()}
               onEditTask={(task) => openEditTaskForDate(effectiveDashboardDate, task)}
+              onDeduplicateDayTasks={handleDeduplicateDayTasks}
               onAddFocusSession={handleAddFocusSession}
               onUpdateDashboardPreferences={handleUpdateDashboardPreferences}
             />

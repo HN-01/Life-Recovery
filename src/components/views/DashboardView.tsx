@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
+  AlertTriangle,
   ArrowDown,
   ArrowRight,
   ArrowUp,
@@ -9,6 +10,7 @@ import {
   ChevronLeft,
   ChevronRight,
   ClipboardCheck,
+  Clock,
   Copy,
   Edit3,
   Eye,
@@ -56,12 +58,14 @@ import {
   computeCoachDailyInsight,
   computeDeepWorkMetrics,
   computeFocusStability,
+  deduplicateDayTasks,
   DEFAULT_WIDGET_ORDER,
   formatTimerClock,
   normalizeDashboardPreferences,
   WIDGET_CATALOG,
 } from '../../utils/focusMetrics';
 import { Modal } from '../ui/Modal';
+import { ConfirmDialog } from '../ui/ConfirmDialog';
 
 interface DashboardViewProps {
   state: AppState;
@@ -80,6 +84,7 @@ interface DashboardViewProps {
   onOpenDailyReview: () => void;
   onOpenSmartPlan: () => void;
   onEditTask: (task: RoutineTask) => void;
+  onDeduplicateDayTasks?: (dateStr: string) => void;
   onAddFocusSession: (dateStr: string, session: FocusSession) => void;
   onUpdateDashboardPreferences: (prefs: DashboardPreferences) => void;
 }
@@ -91,47 +96,60 @@ const PRIORITY_WEIGHT: Record<TaskPriority, number> = {
   Low: 1,
 };
 
-const TIMELINE_TICKS = ['8 AM', '10 AM', '12 PM', '2 PM', '4 PM', '6 PM', '8 PM'];
+const TIMELINE_AXIS_TICKS: Array<{ label: string; pct: number }> = [
+  { label: '8 AM', pct: 0 },
+  { label: '10 AM', pct: 16.6667 },
+  { label: '12 PM', pct: 33.3333 },
+  { label: '2 PM', pct: 50 },
+  { label: '4 PM', pct: 66.6667 },
+  { label: '6 PM', pct: 83.3333 },
+  { label: '8 PM', pct: 100 },
+];
 
-function getPriorityPillStyles(priority: TaskPriority, isDone: boolean) {
-  if (isDone) {
+function getPriorityVisuals(priority: TaskPriority, effectiveState: ReturnType<typeof getEffectiveTaskState>) {
+  const priorityTone =
+    priority === 'Critical'
+      ? { dot: 'bg-rose-400', label: 'text-rose-300', bar: 'bg-rose-500/25 border-rose-500/50 hover:bg-rose-500/35' }
+      : priority === 'High'
+      ? { dot: 'bg-amber-400', label: 'text-amber-300', bar: 'bg-amber-500/25 border-amber-500/50 hover:bg-amber-500/35' }
+      : priority === 'Medium'
+      ? { dot: 'bg-sky-400', label: 'text-sky-300', bar: 'bg-sky-500/25 border-sky-500/50 hover:bg-sky-500/35' }
+      : { dot: 'bg-slate-400', label: 'text-slate-300', bar: 'bg-slate-500/25 border-slate-500/45 hover:bg-slate-500/35' };
+
+  if (effectiveState === 'completed') {
     return {
-      container:
-        'bg-emerald-500/12 border-emerald-500/35 text-emerald-200 hover:border-emerald-400/60',
-      dot: 'bg-emerald-400',
-      tag: 'text-emerald-300',
+      ...priorityTone,
+      bar: 'bg-emerald-500/25 border-emerald-500/50 hover:bg-emerald-500/35',
+      statusText: 'Completed',
+      statusClass: 'text-emerald-400',
     };
   }
-  switch (priority) {
-    case 'Critical':
-      return {
-        container:
-          'bg-rose-500/14 border-rose-500/40 text-rose-100 hover:border-rose-400/70',
-        dot: 'bg-rose-400',
-        tag: 'text-rose-300',
-      };
-    case 'High':
-      return {
-        container:
-          'bg-amber-500/14 border-amber-500/40 text-amber-100 hover:border-amber-400/70',
-        dot: 'bg-amber-400',
-        tag: 'text-amber-300',
-      };
-    case 'Medium':
-      return {
-        container:
-          'bg-sky-500/14 border-sky-500/40 text-sky-100 hover:border-sky-400/70',
-        dot: 'bg-sky-400',
-        tag: 'text-sky-300',
-      };
-    default:
-      return {
-        container:
-          'bg-slate-500/15 border-slate-500/35 text-slate-200 hover:border-slate-400/60',
-        dot: 'bg-slate-400',
-        tag: 'text-slate-300',
-      };
+  if (effectiveState === 'missed') {
+    return {
+      ...priorityTone,
+      statusText: 'Missed',
+      statusClass: 'text-rose-400',
+    };
   }
+  if (effectiveState === 'skipped') {
+    return {
+      ...priorityTone,
+      statusText: 'Skipped',
+      statusClass: 'text-slate-500',
+    };
+  }
+  if (effectiveState === 'active') {
+    return {
+      ...priorityTone,
+      statusText: 'Pending · Active',
+      statusClass: 'text-amber-300',
+    };
+  }
+  return {
+    ...priorityTone,
+    statusText: 'Pending',
+    statusClass: 'text-slate-300',
+  };
 }
 
 export function DashboardView({
@@ -151,12 +169,19 @@ export function DashboardView({
   onOpenDailyReview,
   onOpenSmartPlan,
   onEditTask,
+  onDeduplicateDayTasks,
   onAddFocusSession,
   onUpdateDashboardPreferences,
 }: DashboardViewProps) {
   const [customizeMode, setCustomizeMode] = useState(false);
   const [addWidgetOpen, setAddWidgetOpen] = useState(false);
   const [hoveredBucket, setHoveredBucket] = useState<string | null>(null);
+  const [deduplicateConfirmOpen, setDeduplicateConfirmOpen] = useState(false);
+  const [highlightedTaskId, setHighlightedTaskId] = useState<string | null>(null);
+  const carouselRef = useRef<HTMLDivElement>(null);
+  const cardRefs = useRef<Record<string, HTMLDivElement | null>>({});
+  const [canScrollLeft, setCanScrollLeft] = useState(false);
+  const [canScrollRight, setCanScrollRight] = useState(false);
 
   // Interactive Deep Work Focus Timer State (persists real FocusSession records to Firestore)
   const [timerStatus, setTimerStatus] = useState<'idle' | 'running' | 'paused'>('idle');
@@ -202,8 +227,89 @@ export function DashboardView({
     [state, viewedDay, now]
   );
 
-  const tasks = viewedDay?.tasks ?? [];
+  const rawTasks = viewedDay?.tasks ?? [];
+  const {
+    tasks,
+    duplicateCount,
+    duplicateTitles,
+  } = useMemo(() => deduplicateDayTasks(rawTasks), [rawTasks]);
   const timelineLayout = useMemo(() => assignTimelineLanes(tasks, 480, 1200), [tasks]);
+
+  const updateCarouselScrollButtons = useCallback(() => {
+    const el = carouselRef.current;
+    if (!el) {
+      setCanScrollLeft(false);
+      setCanScrollRight(false);
+      return;
+    }
+    const maxScroll = Math.max(0, el.scrollWidth - el.clientWidth);
+    setCanScrollLeft(el.scrollLeft > 4);
+    setCanScrollRight(maxScroll - el.scrollLeft > 4);
+  }, []);
+
+  useEffect(() => {
+    const el = carouselRef.current;
+    if (el) {
+      el.scrollLeft = 0;
+    }
+    setHighlightedTaskId(null);
+  }, [viewedDate]);
+
+  useEffect(() => {
+    const el = carouselRef.current;
+    updateCarouselScrollButtons();
+    if (!el) return;
+
+    const handleResize = () => updateCarouselScrollButtons();
+    el.addEventListener('scroll', updateCarouselScrollButtons, { passive: true });
+    window.addEventListener('resize', handleResize);
+    let observer: ResizeObserver | undefined;
+    if (typeof ResizeObserver !== 'undefined') {
+      observer = new ResizeObserver(handleResize);
+      observer.observe(el);
+    }
+    const raf = window.requestAnimationFrame(updateCarouselScrollButtons);
+
+    return () => {
+      el.removeEventListener('scroll', updateCarouselScrollButtons);
+      window.removeEventListener('resize', handleResize);
+      observer?.disconnect();
+      window.cancelAnimationFrame(raf);
+    };
+  }, [tasks.length, viewedDate, updateCarouselScrollButtons]);
+
+  const scrollCarouselBy = (direction: -1 | 1) => {
+    const el = carouselRef.current;
+    if (!el) return;
+    const prefersReducedMotion =
+      typeof window !== 'undefined' &&
+      window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+    const step = Math.max(280, Math.round(el.clientWidth * 0.78));
+    el.scrollBy({
+      left: direction * step,
+      behavior: prefersReducedMotion ? 'auto' : 'smooth',
+    });
+  };
+
+  const focusCarouselCard = (taskId: string) => {
+    const container = carouselRef.current;
+    const card = cardRefs.current[taskId];
+    if (container && card) {
+      const prefersReducedMotion =
+        typeof window !== 'undefined' &&
+        window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+      const targetLeft =
+        card.offsetLeft - Math.max(0, (container.clientWidth - card.offsetWidth) / 2);
+      container.scrollTo({
+        left: Math.max(0, targetLeft),
+        behavior: prefersReducedMotion ? 'auto' : 'smooth',
+      });
+    }
+    setHighlightedTaskId(taskId);
+    window.setTimeout(() => {
+      setHighlightedTaskId((prev) => (prev === taskId ? null : prev));
+    }, 2200);
+  };
 
   const topPriorities = useMemo(
     () =>
@@ -654,14 +760,22 @@ export function DashboardView({
           </section>
         );
 
-      case 'timeline':
+      case 'timeline': {
+        const showLiveNowMarker =
+          viewedDate === todayDateStr &&
+          now.minutesSinceMidnight >= 480 &&
+          now.minutesSinceMidnight <= 1200;
+        const liveNowPct = showLiveNowMarker
+          ? ((now.minutesSinceMidnight - 480) / 720) * 100
+          : 0;
+
         return (
           <section className="bg-[#111216] border border-white/8 rounded-2xl overflow-hidden">
-            <div className="px-6 py-4 border-b border-white/8 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="px-5 sm:px-6 py-4 border-b border-white/8 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
               <div>
                 <h2 className="text-base font-semibold text-white">Daily Timeline</h2>
-                <p className="text-xs text-slate-400 mt-0.5">
-                  8 AM – 8 PM scheduled execution blocks · Click any task pill to inspect or edit
+                <p className="text-xs text-slate-400 mt-0.5 tabular-nums">
+                  8 AM – 8 PM time scale &amp; scheduled task carousel · {tasks.length} block{tasks.length === 1 ? '' : 's'} for {formatShortDate(viewedDate)}
                 </p>
               </div>
 
@@ -686,6 +800,30 @@ export function DashboardView({
                   </span>
                 </div>
 
+                {/* Carousel Controls */}
+                {tasks.length > 0 && (
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => scrollCarouselBy(-1)}
+                      disabled={!canScrollLeft}
+                      aria-label="Scroll tasks left"
+                      className="w-9 h-9 inline-flex items-center justify-center rounded-xl bg-[#0A0A0C] border border-white/10 text-slate-200 hover:border-amber-500/45 hover:text-amber-300 disabled:opacity-35 disabled:hover:border-white/10 disabled:hover:text-slate-200 transition-colors"
+                    >
+                      <ChevronLeft className="w-4 h-4" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => scrollCarouselBy(1)}
+                      disabled={!canScrollRight}
+                      aria-label="Scroll tasks right"
+                      className="w-9 h-9 inline-flex items-center justify-center rounded-xl bg-[#0A0A0C] border border-white/10 text-slate-200 hover:border-amber-500/45 hover:text-amber-300 disabled:opacity-35 disabled:hover:border-white/10 disabled:hover:text-slate-200 transition-colors"
+                    >
+                      <ChevronRight className="w-4 h-4" />
+                    </button>
+                  </div>
+                )}
+
                 <button
                   type="button"
                   onClick={() => onNavigate('routine')}
@@ -695,6 +833,32 @@ export function DashboardView({
                 </button>
               </div>
             </div>
+
+            {duplicateCount > 0 && (
+              <div className="mx-5 sm:mx-6 mt-4 p-3.5 rounded-xl bg-amber-500/10 border border-amber-500/30 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div className="flex items-start gap-2.5 text-xs text-amber-200">
+                  <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
+                  <div>
+                    <p className="font-medium">
+                      {duplicateCount} duplicate task record{duplicateCount === 1 ? '' : 's'} detected in Firestore
+                      {duplicateTitles.length > 0 ? ` (${duplicateTitles.join(', ')})` : ''}.
+                    </p>
+                    <p className="text-[11px] text-amber-200/80 mt-0.5">
+                      Duplicate rendering is suppressed automatically. Clean up stored records only if you confirm.
+                    </p>
+                  </div>
+                </div>
+                {onDeduplicateDayTasks && (
+                  <button
+                    type="button"
+                    onClick={() => setDeduplicateConfirmOpen(true)}
+                    className="px-3 py-1.5 text-xs font-semibold text-slate-950 bg-amber-500 hover:bg-amber-400 rounded-lg transition-colors whitespace-nowrap shrink-0"
+                  >
+                    Clean Up Duplicates
+                  </button>
+                )}
+              </div>
+            )}
 
             {tasks.length === 0 ? (
               <div className="p-8 text-center">
@@ -710,26 +874,37 @@ export function DashboardView({
                 </button>
               </div>
             ) : (
-              <div className="p-6 space-y-5">
-                {/* Horizontal 8 AM - 8 PM Timeline (Desktop & Tablet) */}
+              <div className="p-5 sm:p-6 space-y-5">
+                {/* Accurate Proportional 8 AM - 8 PM Time Scale Ruler (Desktop & Tablet) */}
                 <div className="hidden md:block">
-                  {/* Hour Ticks Header */}
-                  <div className="flex items-center justify-between text-[11px] font-mono tabular-nums text-slate-500 pb-2 border-b border-white/8">
-                    {TIMELINE_TICKS.map((tick) => (
-                      <span key={tick}>{tick}</span>
+                  <div className="relative h-5 border-b border-white/8 text-[11px] font-mono tabular-nums text-slate-500">
+                    {TIMELINE_AXIS_TICKS.map((tick, idx) => (
+                      <span
+                        key={tick.label}
+                        style={{ left: `${tick.pct}%` }}
+                        className={`absolute top-0 whitespace-nowrap ${
+                          idx === 0
+                            ? 'translate-x-0'
+                            : idx === TIMELINE_AXIS_TICKS.length - 1
+                            ? '-translate-x-full'
+                            : '-translate-x-1/2'
+                        }`}
+                      >
+                        {tick.label}
+                      </span>
                     ))}
                   </div>
 
                   {timelineLayout.positioned.length === 0 ? (
-                    <div className="py-6 text-center text-xs text-slate-400">
-                      No blocks scheduled inside the 8 AM – 8 PM daytime window. See early/evening blocks below.
+                    <div className="mt-3 py-3 px-4 rounded-xl bg-[#0A0A0C] border border-white/8 text-center text-xs text-slate-400">
+                      All scheduled blocks for {formatShortDate(viewedDate)} fall outside the 8 AM – 8 PM window. Browse them in the carousel below.
                     </div>
                   ) : (
                     <div
-                      className="relative mt-3 rounded-xl bg-[#0A0A0C] border border-white/8 overflow-hidden"
-                      style={{ height: `${Math.max(1, timelineLayout.laneCount) * 56 + 16}px` }}
+                      className="relative mt-2.5 rounded-xl bg-[#0A0A0C] border border-white/8 overflow-hidden"
+                      style={{ height: `${Math.max(1, timelineLayout.laneCount) * 24 + 12}px` }}
                     >
-                      {/* Subtle 2-hour vertical guide grid */}
+                      {/* Exact 2-hour vertical guide grid */}
                       <div
                         className="pointer-events-none absolute inset-0 grid grid-cols-6"
                         aria-hidden="true"
@@ -737,163 +912,166 @@ export function DashboardView({
                         {Array.from({ length: 6 }).map((_, idx) => (
                           <div
                             key={idx}
-                            className="border-r border-white/[0.04] last:border-r-0 h-full"
+                            className="border-r border-white/[0.05] last:border-r-0 h-full"
                           />
                         ))}
                       </div>
 
-                      {timelineLayout.positioned.map((item) => {
-                        const isDone = item.task.status === 'completed';
-                        const styles = getPriorityPillStyles(item.task.priority, isDone);
-                        return (
-                          <div
-                            key={item.task.id}
-                            style={{
-                              left: `calc(${item.leftPct}% + 2px)`,
-                              width: `calc(${item.widthPct}% - 4px)`,
-                              top: `${item.lane * 56 + 8}px`,
-                              height: '46px',
-                            }}
-                            className={`absolute rounded-full border px-3 flex items-center gap-2 transition-colors ${styles.container}`}
-                          >
-                            <button
-                              type="button"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                onToggleTaskStatus(viewedDate, item.task.id);
-                              }}
-                              aria-label={`Mark ${item.task.title} as ${
-                                isDone ? 'pending' : 'completed'
-                              }`}
-                              className={`w-4 h-4 rounded-full border flex items-center justify-center shrink-0 transition-colors ${
-                                isDone
-                                  ? 'bg-emerald-500 border-emerald-500 text-slate-950'
-                                  : 'border-white/30 hover:border-amber-400 bg-[#0A0A0C]'
-                              }`}
-                            >
-                              {isDone && <Check className="w-2.5 h-2.5 stroke-[3]" />}
-                            </button>
+                      {/* Live Current Time Hairline (Today 8 AM - 8 PM) */}
+                      {showLiveNowMarker && (
+                        <div
+                          className="pointer-events-none absolute top-0 bottom-0 w-px bg-amber-400/80 z-10"
+                          style={{ left: `${liveNowPct}%` }}
+                          aria-hidden="true"
+                        />
+                      )}
 
-                            <button
-                              type="button"
-                              onClick={() => onEditTask(item.task)}
-                              title={`${item.task.title} (${formatTime12h(
-                                item.task.startTime
-                              )} – ${formatTime12h(item.task.endTime)} · ${item.task.priority})`}
-                              className="flex-1 min-w-0 flex items-center justify-between gap-2 text-left"
-                            >
-                              <span
-                                className={`text-xs font-medium truncate ${
-                                  isDone ? 'line-through opacity-65' : ''
-                                }`}
-                              >
-                                {item.task.title}
-                              </span>
-                              <span className="hidden lg:inline-flex items-center gap-1.5 text-[10px] font-mono tabular-nums shrink-0 opacity-85">
-                                <span className={`w-1.5 h-1.5 rounded-full ${styles.dot}`} />
-                                {formatTime12h(item.task.startTime)}
-                              </span>
-                            </button>
-                          </div>
+                      {timelineLayout.positioned.map((item) => {
+                        const eff = getEffectiveTaskState(item.task, viewedDate, now);
+                        const visuals = getPriorityVisuals(item.task.priority, eff);
+                        const dur = getDurationMinutes(item.task.startTime, item.task.endTime);
+                        return (
+                          <button
+                            key={item.task.id}
+                            type="button"
+                            onClick={() => focusCarouselCard(item.task.id)}
+                            title={`${item.task.title} · ${formatTime12h(
+                              item.task.startTime
+                            )} – ${formatTime12h(item.task.endTime)} (${formatDuration(dur)}) · ${
+                              item.task.priority
+                            } · ${visuals.statusText}`}
+                            aria-label={`Jump to ${item.task.title} (${formatTime12h(
+                              item.task.startTime
+                            )} to ${formatTime12h(item.task.endTime)})`}
+                            style={{
+                              left: `${item.leftPct}%`,
+                              width: `${item.widthPct}%`,
+                              top: `${item.lane * 24 + 6}px`,
+                              height: '16px',
+                            }}
+                            className={`absolute rounded-md border transition-colors ${visuals.bar} ${
+                              highlightedTaskId === item.task.id
+                                ? 'ring-1 ring-amber-400 border-amber-400'
+                                : ''
+                            }`}
+                          />
                         );
                       })}
                     </div>
                   )}
                 </div>
 
-                {/* Responsive Mobile Pill Timeline */}
-                <div className="md:hidden space-y-2">
+                {/* Horizontal Scrolling Task Card Carousel */}
+                <div
+                  ref={carouselRef}
+                  role="region"
+                  aria-label={`Scheduled tasks carousel for ${formatShortDate(viewedDate)}`}
+                  className="flex items-stretch gap-4 overflow-x-auto scroll-smooth snap-x snap-mandatory pb-2"
+                >
                   {tasks.map((task) => {
-                    const isDone = task.status === 'completed';
-                    const styles = getPriorityPillStyles(task.priority, isDone);
+                    const eff = getEffectiveTaskState(task, viewedDate, now);
+                    const isDone = eff === 'completed';
+                    const visuals = getPriorityVisuals(task.priority, eff);
+                    const durationMins = getDurationMinutes(task.startTime, task.endTime);
+                    const isHighlighted = highlightedTaskId === task.id;
+
                     return (
                       <div
                         key={task.id}
-                        className={`rounded-full border px-3.5 py-2.5 flex items-center gap-3 ${styles.container}`}
+                        ref={(el) => {
+                          cardRefs.current[task.id] = el;
+                        }}
+                        className={`w-[88%] sm:w-[300px] lg:w-[320px] shrink-0 snap-start rounded-2xl bg-[#0A0A0C] border p-4 flex flex-col justify-between gap-4 transition-colors ${
+                          isHighlighted
+                            ? 'border-amber-400/75 ring-1 ring-amber-400/30'
+                            : isDone
+                            ? 'border-emerald-500/25 hover:border-emerald-400/50'
+                            : 'border-white/10 hover:border-amber-500/40'
+                        }`}
                       >
-                        <button
-                          type="button"
-                          onClick={() => onToggleTaskStatus(viewedDate, task.id)}
-                          aria-label={`Toggle ${task.title}`}
-                          className={`w-4 h-4 rounded-full border flex items-center justify-center shrink-0 ${
-                            isDone
-                              ? 'bg-emerald-500 border-emerald-500 text-slate-950'
-                              : 'border-white/30 bg-[#0A0A0C]'
-                          }`}
-                        >
-                          {isDone && <Check className="w-2.5 h-2.5 stroke-[3]" />}
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => onEditTask(task)}
-                          className="flex-1 min-w-0 text-left"
-                        >
-                          <p
-                            className={`text-xs font-medium truncate ${
-                              isDone ? 'line-through opacity-65' : ''
-                            }`}
+                        <div className="space-y-3">
+                          {/* Top Row: Completion Checkbox + Priority Indicator & Completion Status */}
+                          <div className="flex items-center justify-between gap-3">
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                onToggleTaskStatus(viewedDate, task.id);
+                              }}
+                              aria-label={`Mark ${task.title} as ${
+                                isDone ? 'pending' : 'completed'
+                              }`}
+                              aria-pressed={isDone}
+                              className={`w-6 h-6 rounded-lg border flex items-center justify-center shrink-0 transition-colors ${
+                                isDone
+                                  ? 'bg-emerald-500 border-emerald-400 text-slate-950'
+                                  : 'bg-[#111216] border-white/25 hover:border-amber-400 text-transparent'
+                              }`}
+                            >
+                              <Check className="w-3.5 h-3.5 stroke-[3]" />
+                            </button>
+
+                            <div className="flex items-center gap-2 text-[11px] font-medium whitespace-nowrap">
+                              <span className={`inline-flex items-center gap-1.5 ${visuals.label}`}>
+                                <span className={`w-2 h-2 rounded-full ${visuals.dot}`} />
+                                {task.priority}
+                              </span>
+                              <span className="text-slate-600" aria-hidden="true">·</span>
+                              <span className={visuals.statusClass}>{visuals.statusText}</span>
+                            </div>
+                          </div>
+
+                          {/* Complete Untruncated Task Title */}
+                          <button
+                            type="button"
+                            onClick={() => onEditTask(task)}
+                            className="w-full text-left group focus:outline-none"
                           >
-                            {task.title}
-                          </p>
-                          <p className="text-[11px] font-mono tabular-nums opacity-80">
-                            {formatTime12h(task.startTime)} – {formatTime12h(task.endTime)} ·{' '}
-                            {task.priority}
-                          </p>
-                        </button>
+                            <h3
+                              className={`text-sm font-semibold leading-snug whitespace-normal break-words transition-colors ${
+                                isDone
+                                  ? 'line-through text-slate-400 group-hover:text-slate-200'
+                                  : 'text-white group-hover:text-amber-300'
+                              }`}
+                            >
+                              {task.title}
+                            </h3>
+                          </button>
+                        </div>
+
+                        {/* Bottom Metadata & View/Edit Action */}
+                        <div className="pt-3 border-t border-white/8 space-y-2.5">
+                          <div className="flex items-center justify-between gap-2 text-xs font-mono tabular-nums text-slate-300">
+                            <span className="inline-flex items-center gap-1.5">
+                              <Clock className="w-3.5 h-3.5 text-amber-400/80 shrink-0" />
+                              {formatTime12h(task.startTime)} – {formatTime12h(task.endTime)}
+                            </span>
+                            <span className="text-amber-300 font-medium shrink-0">
+                              {formatDuration(durationMins)}
+                            </span>
+                          </div>
+
+                          <div className="flex items-center justify-between gap-2 text-[11px]">
+                            <span className="text-slate-400 truncate">{task.category}</span>
+                            <button
+                              type="button"
+                              onClick={() => onEditTask(task)}
+                              className="inline-flex items-center gap-1 font-medium text-amber-400 hover:text-amber-300 whitespace-nowrap shrink-0"
+                            >
+                              <Edit3 className="w-3 h-3" />
+                              View / Edit
+                            </button>
+                          </div>
+                        </div>
                       </div>
                     );
                   })}
                 </div>
-
-                {/* Early Morning (<8 AM) & Late Evening (>8 PM) Blocks Summary (Desktop) */}
-                {timelineLayout.outsideWindowTasks.length > 0 && (
-                  <div className="hidden md:block pt-2 border-t border-white/8">
-                    <p className="text-[11px] font-medium text-slate-500 mb-2">
-                      Before 8 AM &amp; After 8 PM ({timelineLayout.outsideWindowTasks.length})
-                    </p>
-                    <div className="flex flex-wrap gap-2">
-                      {timelineLayout.outsideWindowTasks.map((task) => {
-                        const isDone = task.status === 'completed';
-                        const styles = getPriorityPillStyles(task.priority, isDone);
-                        return (
-                          <div
-                            key={task.id}
-                            className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-full border text-xs ${styles.container}`}
-                          >
-                            <button
-                              type="button"
-                              onClick={() => onToggleTaskStatus(viewedDate, task.id)}
-                              aria-label={`Toggle ${task.title}`}
-                              className={`w-3.5 h-3.5 rounded-full border flex items-center justify-center shrink-0 ${
-                                isDone
-                                  ? 'bg-emerald-500 border-emerald-500 text-slate-950'
-                                  : 'border-white/30 bg-[#0A0A0C]'
-                              }`}
-                            >
-                              {isDone && <Check className="w-2.5 h-2.5 stroke-[3]" />}
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => onEditTask(task)}
-                              className="inline-flex items-center gap-2 text-left"
-                            >
-                              <span className={isDone ? 'line-through opacity-65' : ''}>
-                                {task.title}
-                              </span>
-                              <span className="text-[10px] font-mono tabular-nums opacity-80">
-                                {formatTime12h(task.startTime)}
-                              </span>
-                            </button>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-                )}
               </div>
             )}
           </section>
         );
+      }
 
       case 'priorities':
         return (
@@ -1328,6 +1506,22 @@ export function DashboardView({
           </div>
         </div>
       </Modal>
+
+      <ConfirmDialog
+        open={deduplicateConfirmOpen}
+        onClose={() => setDeduplicateConfirmOpen(false)}
+        onConfirm={() => onDeduplicateDayTasks?.(viewedDate)}
+        title="Remove Duplicate Tasks from Firestore"
+        message={`Remove ${duplicateCount} duplicate task record${
+          duplicateCount === 1 ? '' : 's'
+        }${
+          duplicateTitles.length > 0 ? ` (${duplicateTitles.join(', ')})` : ''
+        } for ${formatShortDate(
+          viewedDate
+        )}? Completed statuses will be preserved and only redundant copies will be removed.`}
+        confirmLabel="Remove Duplicates"
+        danger={false}
+      />
     </div>
   );
 }

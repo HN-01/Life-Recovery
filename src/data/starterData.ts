@@ -592,7 +592,16 @@ export function instantiateTasksFromTemplate(
       isFixedCommitment: true,
     }));
 
-  return sortTasksChronologically([...baseTasks, ...commitmentTasks]);
+  const seenKeys = new Set<string>();
+  const uniqueTasks: RoutineTask[] = [];
+  for (const task of [...baseTasks, ...commitmentTasks]) {
+    const key = `${task.title.trim().replace(/\s+/g, ' ').toLowerCase()}::${task.startTime}::${task.endTime}`;
+    if (seenKeys.has(key)) continue;
+    seenKeys.add(key);
+    uniqueTasks.push(task);
+  }
+
+  return sortTasksChronologically(uniqueTasks);
 }
 
 export function build30DaysSchedule(
